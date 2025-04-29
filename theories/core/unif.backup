@@ -1,0 +1,257 @@
+From mathcomp Require Import all_ssreflect ssralg ssrint.
+From mathcomp Require boolp.
+
+Require Import preamble hierarchy monad_lib fail_lib state_lib.
+From HB Require Import structures.
+
+Local Open Scope monae_scope.
+
+HB.mixin Record isMonadWriter (S : UU0) (M : UU0 -> UU0) of MonadFailR0 M := {
+  write : S -> M unit
+}.
+
+#[short(type=writerMonad)]
+HB.structure Definition MonadWriter (S : UU0) := { M of isMonadWriter S M & }.
+
+HB.mixin Record isMonadWriterRun (S : UU0)
+  (SM : UU0) (SA : S -> SM -> SM)
+  (N : failMonad) (M : UU0 -> UU0) of MonadWriter S M & MonadFailR0 M := {
+  runWriteT : forall A : UU0, M A -> SM -> N (A * SM)%type;
+  runWriteTret : forall (A : UU0) (a : A) (ms : SM),
+    @runWriteT _ (Ret a) ms = Ret (a, ms) ;
+  runWriteTbind : forall (A B : UU0) (m : M A) (f : A -> M B) (ms : SM),
+    @runWriteT _ (m >>= f) ms =
+    @runWriteT _ m ms >>= fun x => @runWriteT _ (f x.1) x.2 ;
+  runWriteTwrite : forall (s : S) (ms : SM),
+    @runWriteT _ (write s) ms = Ret (tt, SA s ms);
+  runWriteTfail : forall (A : UU0) (ms : SM),
+    @runWriteT _ (@fail [the failMonad of M] A) ms = @fail N _;
+}.
+
+#[short(type=writerRunMonad)]
+HB.structure Definition MonadWriterRun S SM SA N:=
+  {M of isMonadWriterRun S SM SA N M & isMonadFailR0 M}.
+
+Arguments runWriteT {_} {_} {_} {_} {_} {_}.
+
+Section Definitions.
+
+Lemma mem_tail {A:eqType} x a {l : seq A} : x \in l -> x \in a::l.
+Proof. rewrite inE => ->; exact/orbT. Qed.
+Hint Resolve mem_head mem_tail : core.
+
+Definition var : Type := nat.
+
+Inductive btree : Type :=
+| btVar : var -> btree
+| btInt : nat -> btree
+| btNode : btree -> btree -> btree.
+
+Scheme Equality for btree.
+
+Lemma btree_eq_boolP : Equality.axiom btree_eq_dec.
+Proof. move=> x y. case: btree_eq_dec => //= H; by constructor. Qed.
+HB.instance Definition _ := hasDecEq.Build _ btree_eq_boolP.
+
+(* t[x\u] *)
+Fixpoint subst x u t : btree :=
+match t with
+| btVar v => if v == x then u else t
+| btInt _ => t
+| btNode t1 t2 => btNode (subst x u t1) (subst x u t2)
+end.
+
+Definition subst_rul := (var * btree)%type.
+Definition constr := (btree * btree)%type.
+Definition constr_list := list constr.
+
+Definition subst_list (s : list subst_rul) t : btree :=
+  foldl (fun t (p : subst_rul)  => subst p.1 p.2 t) t s.
+
+Definition subst_pair x t (p : constr) := (subst x t p.1, subst x t p.2).
+
+Fixpoint union (vl1 vl2 : list var) :=
+  if vl1 is v :: vl then
+    if v \in vl2 then union vl vl2 else union vl (v :: vl2)
+  else vl2.
+
+Lemma in_union_or v vl1 vl2 :
+  v \in union vl1 vl2 = (v \in vl1) || (v \in vl2).
+Proof.
+  elim: vl1 vl2 => //= x vl IH vl2.
+  case: ifP => Hx.
+  - rewrite inE IH.
+    case/boolP: (v == x) => // /eqP ->.
+    by rewrite Hx orbT.
+  - by rewrite IH !inE orbA (orbC (v == x)).
+Qed.
+
+Lemma uniq_union vl1 vl2 : uniq vl2 -> uniq (union vl1 vl2).
+Proof.
+  elim: vl1 vl2 => //= v vl IH vl2 H.
+  case: ifP => Hv; by rewrite IH //= Hv.
+Qed.
+
+Fixpoint vars (t : btree) : list var :=
+  match t with
+  | btVar x => [:: x]
+  | btInt _ => nil
+  | btNode t1 t2 => union (vars t1) (vars t2)
+  end.
+
+Lemma subst_same v t' t : v \notin (vars t) -> subst v t' t = t.
+Proof.
+  elim: t => //= [x | t1 IH1 t2 IH2].
+  - by rewrite inE eq_sym => /negbTE ->.
+  - by rewrite in_union_or negb_or => /andP[] /IH1 -> /IH2 ->.
+Qed.
+
+(*
+Definition unifies s (t1 t2 : btree) := subst_list s t1 = subst_list s t2.
+Definition unifies_pairs s (l : constr_list) :=
+  forall t1 t2, (t1,t2) \in l -> unifies s t1 t2.
+*)
+
+Fixpoint size_tree (t : btree) : nat :=
+  if t is btNode t1 t2 then 1 + size_tree t1 + size_tree t2 else 1.
+
+Definition size_pairs (l : constr_list) :=
+  sumn [seq size_tree p.1 + size_tree p.2 | p <- l].
+
+Fixpoint vars_pairs (l : constr_list) : list var :=
+  match l with
+  | nil => nil
+  | (t1, t2) :: r => union (union (vars t1) (vars t2)) (vars_pairs r)
+  end.
+
+End Definitions.
+
+Definition substMonoid : UU0 := btree -> btree.
+Definition substAcc (s : subst_rul) (sm : substMonoid) : substMonoid :=
+  fun t => subst s.1 s.2 (sm t).
+Definition substNone : substMonoid := id.
+
+Lemma subst_empty t : substNone t = subst_list [::] t.
+Proof. trivial. Qed.
+
+Lemma subst_comp s l : forall t,
+  substAcc s (subst_list l) t = subst_list (l ++ [:: s])%list t.
+Proof.
+elim: l => //= a l H t.
+by rewrite -H.
+Qed.
+
+Definition unifies (sm : substMonoid) t1 t2 := sm t1 = sm t2.
+Definition unifies_pairs (sm : substMonoid) (l : constr_list) :=
+  forall t1 t2, (t1,t2) \in l -> unifies sm t1 t2.
+
+(*
+Inductive get_subst_list : substMonoid -> seq subst_rul -> Prop :=
+| get_substNone : get_subst_list substNone [::]
+| get_substAcc s sm l :
+  get_subst_list sm l ->
+  get_subst_list (substAcc s sm) (l ++ [:: s])%list.
+*)
+
+Section Unify1.
+
+Variable N : writerMonad subst_rul.
+Variable M : writerRunMonad subst_rul substMonoid substAcc N.
+Variable unify2 : constr_list -> M unit.
+
+Definition unify_subst x t r : M unit :=
+  if x \in vars t then fail
+  else write (x, t) >> unify2 (map (subst_pair x t) r).
+
+Fixpoint unify1 (h : nat) (l : constr_list) : M unit :=
+if h is h.+1 then
+  match l with
+  | nil => Ret tt
+  | (btVar x, btVar y) :: r =>
+    if x == y then unify1 h r
+    else unify_subst x (btVar y) r
+  | (btVar x, t) :: r =>
+    unify_subst x t r
+  | (t, btVar x) :: r =>
+    unify_subst x t r
+  | (btInt x, btInt y) :: r =>
+    if x == y then unify1 h r else fail
+  | (btNode t1 t2, btNode t1' t2') :: r =>
+    unify1 h ((t1, t1') :: (t2, t2') :: r)
+  | _ => fail
+  end
+else
+  fail.
+
+End Unify1.
+
+Section Unify2.
+Variable N : writerMonad subst_rul.
+Variable M : writerRunMonad subst_rul substMonoid substAcc N.
+Fixpoint unify2 (h : nat) l : M unit :=
+  if h is h.+1 then unify1 N M (unify2 h) (size_pairs l + 1) l else fail.
+End Unify2.
+
+Section Unify.
+Variable N : writerMonad subst_rul.
+Variable M : writerRunMonad subst_rul substMonoid substAcc N.
+
+Definition unify t1 t2 : N (unit * substMonoid)%type :=
+  let l := [:: (t1,t2)] in
+  runWriteT
+  (unify2 N M (size (vars_pairs l) + 1) l)
+  substNone.
+
+Lemma subst_list_btNode s t1 t2 :
+  subst_list s (btNode t1 t2) = btNode (subst_list s t1) (subst_list s t2).
+Proof. by elim: s t1 t2 => /=. Qed.
+
+Lemma unifies_pairs_same sm t l :
+  unifies_pairs sm l -> unifies_pairs sm ((t,t) :: l).
+Proof.
+  move=> H t1 t2; rewrite inE => /orP[].
+  - by case/eqP => -> ->.
+  - exact/H.
+Qed.
+
+Lemma in_aux (a : constr) l : a \in a :: l.
+Proof.
+rewrite in_cons.
+apply (Bool.reflect_iff _ _ orP).
+by left.
+Qed.
+
+Lemma unifies_pairs_swap sm t1 t2 l :
+  unifies_pairs sm ((t1, t2) :: l) -> unifies_pairs sm ((t2, t1) :: l).
+Proof.
+  move=> H x y.
+  rewrite inE => /orP[/eqP[-> ->] | Hl].
+  - exact/esym/H/in_aux.
+  - exact/H/mem_tail.
+Qed.
+
+(* Soundness *)
+
+Theorem unify2_sound h sm l :
+  runWriteT (unify2 N M h l)
+  substNone = Ret (tt, sm) ->
+  unifies_pairs sm l.
+Proof.
+elim: h l => /= [l h | n IHl l h].
+- rewrite runWriteTfail in h.
+
+Admitted.
+
+Theorem soundness t1 t2 sm :
+  unify t1 t2 = Ret(tt, sm) -> unifies sm t1 t2.
+Admitted.
+
+(* Completeness *)
+
+End Unify.
+
+
+
+
+
+
