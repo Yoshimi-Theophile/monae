@@ -11,7 +11,7 @@ Unset Printing Implicit Defensive.
 Local Open Scope monae_scope.
 
 HB.mixin Record isMonadAction (S : UU0) (S0 : S) (op : Monoid.law S0)
-  (M : UU0 -> UU0) of MonadFailR0 M := {
+  (M : UU0 -> UU0) of Monad M := {
   action : forall {A : UU0}, S -> M A -> M A;
   action0 : forall (A : UU0), @action A S0 = id;
   actionA : forall (A : UU0) (x y : S) (m : M A),
@@ -28,25 +28,137 @@ HB.structure Definition MonadAction (S : UU0) (S0 : S) (op : Monoid.law S0) :=
 Arguments action {_ _ _ _ _}.
 
 HB.mixin Record isMonadActionRun (S : UU0) (S0 : S) (op : Monoid.law S0)
-  (N : failMonad) (M : UU0 -> UU0) of @MonadAction S S0 op M & MonadFailR0 M := {
-  runActionT : forall A : UU0, M A -> S -> N (A * S)%type;
-  runActionTret : forall (A : UU0) (a : A) (s : S),
-    @runActionT _ (Ret a) s = Ret (a, s) ;
-  runActionTaction : forall (A : UU0) (s s' : S) (m : M A),
-    @runActionT _ (action s m) s' = 
-    @runActionT _ m S0 >>= fun x => Ret (x.1, op s s');
-  runActionTfail : forall (A : UU0) (s : S),
-    @runActionT _ (@fail [the failMonad of M] A) s = @fail N _;
-  runActionTbind : forall (A B : UU0) (m : M A) (f : A -> M B) (s : S),
-    @runActionT _ (m >>= f) s =
-    @runActionT _ m s >>= fun x => @runActionT _ (f x.1) x.2 ;
+  (N : monad) (M : UU0 -> UU0) of @MonadAction S S0 op M := {
+  runActionT : forall A : UU0, M A -> N (A * S)%type;
+  runActionTret : forall (A : UU0) (a : A),
+    @runActionT _ (Ret a) = Ret (a, S0) ;
+  runActionTbind : forall (A B : UU0) (m : M A) (f : A -> M B),
+    @runActionT _ (m >>= f) =
+    @runActionT _ m >>=
+      fun x => @runActionT _ (f x.1) >>=
+      fun y => Ret (y.1, op x.2 y.2) ;
+  runActionTaction : forall (A : UU0) (s : S) (m : M A),
+    @runActionT _ (action s m) = 
+    @runActionT _ m >>= fun x => Ret (x.1, op x.2 s);
 }.
 
 #[short(type=actionRunMonad)]
 HB.structure Definition MonadActionRun S S0 op N:=
-  {M of isMonadActionRun S S0 op N M & isMonadFailR0 M}.
+  {M of isMonadActionRun S S0 op N M}.
+
+HB.mixin Record isMonadActionRunFail (S : UU0) (S0 : S) (op : Monoid.law S0)
+  (N : failMonad) (M : UU0 -> UU0) of @MonadActionRun S S0 op N M & MonadFailR0 M := {
+  runActionTfail : forall (A : UU0),
+    runActionT _ (@fail M A) = @fail N _;
+}.
+
+#[short(type=actionRunFailMonad)]
+HB.structure Definition MonadActionRunFail S S0 op N:=
+  {M of isMonadActionRunFail S S0 op N M}.
 
 Arguments runActionT {_ _ _ _ _ _}.
+
+Section ActionMonad.
+
+Import Monoid.Theory.
+
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : monad).
+
+Definition acto : UU0 -> UU0 :=
+  fun A => N (A * S)%type.
+Local Notation M := acto.
+
+Let ret : idfun ~~> M := fun A (a : A) => Ret (a, S0).
+
+Let bind A B (m : M A) (f : A -> M B) : M B :=
+  m >>= fun '(a, s1) => f a >>= fun '(b, s2) => Ret (b, op s2 s1).
+
+Let left_neutral : BindLaws.left_neutral bind ret.
+Proof.
+move=> A B /= m f.
+rewrite /bind /ret /= bindretf -[RHS]bindmret.
+apply: eq_bind => -[b s2].
+by rewrite mulm1.
+Qed.
+
+Let right_neutral : BindLaws.right_neutral bind ret.
+Proof.
+move=> A m /=.
+rewrite /bind /ret /= -[RHS]bindmret.
+apply: eq_bind => -[a s1].
+by rewrite bindretf mul1m.
+Qed.
+
+Let associative : BindLaws.associative bind.
+Proof.
+move=> A B C /= m f g.
+rewrite /bind /= bindA.
+apply: eq_bind => -[a s1].
+rewrite !bindA.
+apply: eq_bind => -[b s2].
+rewrite bindretf bindA.
+apply: eq_bind => -[c s3].
+by rewrite bindretf mulmA.
+Qed.
+
+Let action {A : UU0} s2 (m : M A) : M A :=
+  m >>= (fun '(a, s1) => Ret (a, op s2 s1)).
+
+Let runActionT (A : UU0) (m : M A) : N (A * S)%type := m.
+
+Let action0 A : @action A S0 = id.
+Proof.
+apply: boolp.funext.
+rewrite /action => x.
+rewrite -[RHS]bindmret.
+apply: eq_bind => -[a s1].
+by rewrite mul1m.
+Qed.
+
+Let actionA A (x y : S) (m : M A) :
+  action x (action y m) = action (op x y) m.
+Proof.
+rewrite /action bindA.
+apply: eq_bind => -[a s1].
+by rewrite bindretf mulmA.
+Qed.
+
+HB.instance Definition _ :=
+  isMonad_ret_bind.Build acto left_neutral right_neutral associative.
+
+
+Section testing.
+
+Variables (A B : UU0) (s : S) (m : M A) (f : A -> M B).
+
+
+Check @bind A B m f.
+Check bind m f.
+
+Check (m >>= f).
+End testing.
+
+Let actionBind A B (s : S) (m : M A) (f : A -> M B) :
+  action s (m >>= f) = (action s m) >>= f :> M B.
+Proof.
+rewrite /action bindA [RHS]bindA.
+Set Printing All.
+
+apply eq_bind.
+
+
+
+(*
+Lemma bindE (A B : Type) m (f : A -> [the monad of acto] B) :
+  m >>= f = fun s => (fun x => f x.1 x.2) (m s).
+Proof.
+apply boolp.funext => s.
+by rewrite bindE /= /join_of_bind /= /bind /=.
+Qed.
+*)
+
+End ActionMonad.
+
 
 Section WriterMonad.
 
@@ -251,81 +363,15 @@ Proof.
   exact: boolp.funext.
 Qed.
 
-HB.instance Definition _ :=
+HB.instance Definition substIsLaw :=
   Monoid.isLaw.Build substMonoid substNone substComp sconsA scons0s sconss0.
+
+Definition op := HB.pack_for (Monoid.law substNone) substComp substIsLaw.
 End op.
-
-Section ActionMonad.
-
-Variables (S : UU0) (S0 : S) (op : Monoid.law S0).
-
-Definition acto : UU0 -> UU0 :=
-  fun A => S -> A * S.
-Local Notation M := acto.
-
-Let ret : idfun ~~> M := fun A (a : A) s => (a, s).
-
-Let bind := fun A B (m : M A)
-  (f : A -> S -> B * S) =>
-  fun s => (fun x => f x.1 x.2) (m s).
-
-Let left_neutral : BindLaws.left_neutral bind ret.
-Proof.
-move=> A B /= m f.
-by rewrite /bind /ret /=.
-Qed.
-
-Let right_neutral : BindLaws.right_neutral bind ret.
-Proof.
-move=> A B /=; rewrite boolp.funeqE => s.
-by rewrite /bind /ret; elim: (B s) => /=.
-Qed.
-
-Let associative : BindLaws.associative bind.
-Proof.
-move=> A B C /= m f g.
-by rewrite /bind.
-Qed.
-
-HB.instance Definition _ :=
-  isMonad_ret_bind.Build acto left_neutral right_neutral associative.
-
-Lemma bindE (A B : Type) m (f : A -> [the monad of acto] B) :
-  m >>= f = fun s => (fun x => f x.1 x.2) (m s).
-Proof.
-apply boolp.funext => s.
-by rewrite bindE /= /join_of_bind /= /bind /=.
-Qed.
-
-(*
-Let action (A : UU0) : S -> M A -> M A :=
-  fun s =>
-  fun (m : M A) =>
-  (fun s' => (fun x => (x.1, op s' x.2)) (m s)).
-*)
-
-(*
-HB.mixin Record isMonadAction (S : UU0) (S0 : S) (op : Monoid.law S0)
-  (M : UU0 -> UU0) of MonadFailR0 M := {
-  action : forall {A : UU0}, S -> M A -> M A;
-  action0 : forall (A : UU0), @action A S0 = id;
-  actionA : forall (A : UU0) (x y : S) (m : M A),
-    action x (action y m) = action (op x y) m;
-  actionBind : forall (A B : UU0) (s : S) (m : M A) (f : A -> M B),
-    action s (m >>= f) =
-    action s m >>= f;
-}.
-
-#[short(type=actionMonad)]
-HB.structure Definition MonadAction (S : UU0) (S0 : S) (op : Monoid.law S0) :=
-  { M of isMonadAction S S0 op M & }.
-*)
-
-End ActionMonad.
 
 Section Unify1.
 
-Variables (op : Monoid.law substNone) (N : failMonad)
+Variables (N : failMonad)
           (M : @actionRunMonad substMonoid substNone op N).
 
 Variable unify2 : constr_list -> M unit.
@@ -359,11 +405,23 @@ else
 End Unify1.
 
 Section Unify2.
-Variables (op : Monoid.law substNone) (N : failMonad)
+Variables (N : failMonad)
           (M : @actionRunMonad substMonoid substNone op N).
 Fixpoint unify2 (h : nat) l : M unit :=
-  if h is h.+1 then @unify1 op N M (unify2 h) (size_pairs l + 1) l else fail.
+  if h is h.+1 then @unify1 N M (unify2 h) (size_pairs l + 1) l else fail.
 End Unify2.
+
+Section Unify.
+Variables (N : failMonad)
+          (M : @actionRunMonad substMonoid substNone op N).
+
+Definition unify t1 t2 : N (unit * substMonoid)%type :=
+  let l := [:: (t1,t2)] in
+  runActionT
+  (unify2 M (size (vars_pairs l) + 1) l)
+  substNone.
+
+End Unify.
 
 (*
 
@@ -599,6 +657,3 @@ End Unify.
 
 
 *)
-
-
-
