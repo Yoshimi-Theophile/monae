@@ -50,20 +50,20 @@ Arguments runActionT {_ _ _ _ _ _}.
 
 Section WriterMonad.
 
-Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : @actionMonad S S0 op).
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : failMonad)
+          (M : @actionRunMonad S S0 op N).
 
-Definition write (s : S) : N unit := action s (Ret tt).
+Definition write (s : S) : M unit := action s (Ret tt).
 
 Lemma writecomp a b :
   (write a) >> (write b) = write (op a b).
 Proof. by rewrite /write -actionBind bindretf actionA. Qed.
 
-Variable (M : @actionRunMonad S S0 op N).
-
-(*
-Lemma writeRun : forall (s s' : S),
+Lemma writeRun (s s' : S) :
   runActionT (write s) s' = Ret (tt, op s s').
-*)
+Proof.
+by rewrite /write runActionTaction runActionTret bindretf /=.
+Qed.
 
 End WriterMonad.
 
@@ -166,31 +166,6 @@ Definition substMonoid : UU0 := var -> btree.
 Definition substComp : substMonoid -> substMonoid -> substMonoid := subst_comp.
 Definition substNone : substMonoid := btVar.
 
-Lemma sconsA : associative substComp.
-Proof.
-  move => x y z.
-  rewrite /substComp /subst_comp.
-  apply: boolp.funext => v /=.
-  by elim: (z v) => //= t1 -> t2 ->.
-Qed.
-
-Lemma scons0s : left_id substNone substComp.
-Proof.
-  move => x.
-  apply boolp.funext => v.
-  rewrite /substComp /subst_comp.
-  by elim: (x v) => //= t1 -> t2 ->.
-Qed.
-
-Lemma sconss0 : right_id substNone substComp.
-Proof.
-  move => x.
-  exact: boolp.funext.
-Qed.
-
-Definition op :=
-  Monoid.isLaw.Build substMonoid substNone substComp sconsA scons0s sconss0.
-
 Definition unifiesP (sm : substMonoid) t1 t2 := subst sm t1 = subst sm t2.
 Definition unifiesP_pairs (sm : substMonoid) (l : constr_list) :=
   forall t1 t2, (t1,t2) \in l -> unifiesP sm t1 t2.
@@ -253,16 +228,113 @@ split => h; induction l => //=; case_eq a => t1 t2 eq; rewrite eq in h.
   + exact/IHl/hr.
 Qed.
 
+Section op.
+Lemma sconsA : associative substComp.
+Proof.
+  move => x y z.
+  rewrite /substComp /subst_comp.
+  apply: boolp.funext => v /=.
+  by elim: (z v) => //= t1 -> t2 ->.
+Qed.
+
+Lemma scons0s : left_id substNone substComp.
+Proof.
+  move => x.
+  apply boolp.funext => v.
+  rewrite /substComp /subst_comp.
+  by elim: (x v) => //= t1 -> t2 ->.
+Qed.
+
+Lemma sconss0 : right_id substNone substComp.
+Proof.
+  move => x.
+  exact: boolp.funext.
+Qed.
+
+HB.instance Definition _ :=
+  Monoid.isLaw.Build substMonoid substNone substComp sconsA scons0s sconss0.
+End op.
+
+Section ActionMonad.
+
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0).
+
+Definition acto : UU0 -> UU0 :=
+  fun A => S -> A * S.
+Local Notation M := acto.
+
+Let ret : idfun ~~> M := fun A (a : A) s => (a, s).
+
+Let bind := fun A B (m : M A)
+  (f : A -> S -> B * S) =>
+  fun s => (fun x => f x.1 x.2) (m s).
+
+Let left_neutral : BindLaws.left_neutral bind ret.
+Proof.
+move=> A B /= m f.
+by rewrite /bind /ret /=.
+Qed.
+
+Let right_neutral : BindLaws.right_neutral bind ret.
+Proof.
+move=> A B /=; rewrite boolp.funeqE => s.
+by rewrite /bind /ret; elim: (B s) => /=.
+Qed.
+
+Let associative : BindLaws.associative bind.
+Proof.
+move=> A B C /= m f g.
+by rewrite /bind.
+Qed.
+
+HB.instance Definition _ :=
+  isMonad_ret_bind.Build acto left_neutral right_neutral associative.
+
+Lemma bindE (A B : Type) m (f : A -> [the monad of acto] B) :
+  m >>= f = fun s => (fun x => f x.1 x.2) (m s).
+Proof.
+apply boolp.funext => s.
+by rewrite bindE /= /join_of_bind /= /bind /=.
+Qed.
+
 (*
+Let action (A : UU0) : S -> M A -> M A :=
+  fun s =>
+  fun (m : M A) =>
+  (fun s' => (fun x => (x.1, op s' x.2)) (m s)).
+*)
+
+(*
+HB.mixin Record isMonadAction (S : UU0) (S0 : S) (op : Monoid.law S0)
+  (M : UU0 -> UU0) of MonadFailR0 M := {
+  action : forall {A : UU0}, S -> M A -> M A;
+  action0 : forall (A : UU0), @action A S0 = id;
+  actionA : forall (A : UU0) (x y : S) (m : M A),
+    action x (action y m) = action (op x y) m;
+  actionBind : forall (A B : UU0) (s : S) (m : M A) (f : A -> M B),
+    action s (m >>= f) =
+    action s m >>= f;
+}.
+
+#[short(type=actionMonad)]
+HB.structure Definition MonadAction (S : UU0) (S0 : S) (op : Monoid.law S0) :=
+  { M of isMonadAction S S0 op M & }.
+*)
+
+End ActionMonad.
+
 Section Unify1.
 
-Variable N : writerMonad subst_rul.
-Variable M : writerRunMonad subst_rul substMonoid substAcc N.
+Variables (op : Monoid.law substNone) (N : failMonad)
+          (M : @actionRunMonad substMonoid substNone op N).
+
 Variable unify2 : constr_list -> M unit.
+
+Let write := @write substMonoid substNone op N M.
 
 Definition unify_subst x t r : M unit :=
   if x \in vars t then fail
-  else write (x, t) >> unify2 (map (subst_pair x t) r).
+  else (fun f => write f >> unify2 (map (subst_pair f) r)) (subst_var x t).
 
 Fixpoint unify1 (h : nat) (l : constr_list) : M unit :=
 if h is h.+1 then
@@ -287,11 +359,13 @@ else
 End Unify1.
 
 Section Unify2.
-Variable N : writerMonad subst_rul.
-Variable M : writerRunMonad subst_rul substMonoid substAcc N.
+Variables (op : Monoid.law substNone) (N : failMonad)
+          (M : @actionRunMonad substMonoid substNone op N).
 Fixpoint unify2 (h : nat) l : M unit :=
-  if h is h.+1 then unify1 N M (unify2 h) (size_pairs l + 1) l else fail.
+  if h is h.+1 then @unify1 op N M (unify2 h) (size_pairs l + 1) l else fail.
 End Unify2.
+
+(*
 
 Section Unify.
 Variable N : writerMonad subst_rul.
