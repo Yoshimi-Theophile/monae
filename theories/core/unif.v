@@ -39,7 +39,7 @@ HB.mixin Record isMonadActionRun (S : UU0) (S0 : S) (op : Monoid.law S0)
       fun y => Ret (y.1, op x.2 y.2) ;
   runActionTaction : forall (A : UU0) (s : S) (m : M A),
     @runActionT _ (action s m) = 
-    @runActionT _ m >>= fun x => Ret (x.1, op x.2 s);
+    @runActionT _ m >>= fun x => Ret (x.1, op s x.2);
 }.
 
 #[short(type=actionRunMonad)]
@@ -71,28 +71,28 @@ Local Notation M := acto.
 Let ret : idfun ~~> M := fun A (a : A) => Ret (a, S0).
 
 Let bind A B (m : M A) (f : A -> M B) : M B :=
-  m >>= fun '(a, s1) => f a >>= fun '(b, s2) => Ret (b, op s2 s1).
+    m >>= fun '(a, s1) => f a >>= fun '(b, s2) => (Ret (b, op s1 s2)).
 
 Let left_neutral : BindLaws.left_neutral bind ret.
 Proof.
 move=> A B /= m f.
-rewrite /bind /ret /= bindretf -[RHS]bindmret.
+rewrite /bind /ret bindretf -[RHS]bindmret.
 apply: eq_bind => -[b s2].
-by rewrite mulm1.
+by rewrite mul1m.
 Qed.
 
 Let right_neutral : BindLaws.right_neutral bind ret.
 Proof.
 move=> A m /=.
-rewrite /bind /ret /= -[RHS]bindmret.
+rewrite /bind /ret -[RHS]bindmret.
 apply: eq_bind => -[a s1].
-by rewrite bindretf mul1m.
+by rewrite bindretf mulm1.
 Qed.
 
 Let associative : BindLaws.associative bind.
 Proof.
-move=> A B C /= m f g.
-rewrite /bind /= bindA.
+move=> A B C m f g.
+rewrite /bind bindA.
 apply: eq_bind => -[a s1].
 rewrite !bindA.
 apply: eq_bind => -[b s2].
@@ -126,39 +126,46 @@ Qed.
 HB.instance Definition _ :=
   isMonad_ret_bind.Build acto left_neutral right_neutral associative.
 
-
-Section testing.
-
-Variables (A B : UU0) (s : S) (m : M A) (f : A -> M B).
-
-
-Check @bind A B m f.
-Check bind m f.
-
-Check (m >>= f).
-End testing.
-
 Let actionBind A B (s : S) (m : M A) (f : A -> M B) :
-  action s (m >>= f) = (action s m) >>= f :> M B.
+  action s (bind m f) = bind (action s m) f :> M B.
 Proof.
-rewrite /action bindA [RHS]bindA.
-Set Printing All.
-
-apply eq_bind.
-
-
-
-(*
-Lemma bindE (A B : Type) m (f : A -> [the monad of acto] B) :
-  m >>= f = fun s => (fun x => f x.1 x.2) (m s).
-Proof.
-apply boolp.funext => s.
-by rewrite bindE /= /join_of_bind /= /bind /=.
+rewrite /action bindA [RHS]bindA /acto.
+apply eq_bind => -[a s1].
+rewrite bindretf bindA.
+apply eq_bind => -[b s2].
+by rewrite bindretf mulmA.
 Qed.
-*)
+
+Let runActionTret (A : UU0) (a : A) :
+  runActionT (ret a) = Ret (a, S0).
+Proof. by rewrite /runActionT /ret. Qed.
+
+Let runActionTbind (A B : UU0) (m : M A) (f : A -> M B) :
+  runActionT (bind m f) =
+  runActionT m >>=
+    fun x => runActionT (f x.1) >>=
+    fun y => Ret (y.1, op x.2 y.2).
+Proof.
+rewrite /runActionT /acto.
+apply eq_bind => -[a s1] /=.
+apply eq_bind => -[b s2] //=.
+Qed.
+
+Let runActionTaction (A : UU0) (s : S) (m : M A) :
+    runActionT (action s m) = 
+    runActionT m >>= fun x => Ret (x.1, op s x.2).
+Proof.
+rewrite /runActionT /action.
+apply eq_bind => -[a s1] //=.
+Qed.
+
+HB.instance Definition _ :=
+  isMonadAction.Build S S0 op acto action0 actionA actionBind.
+
+HB.instance Definition _ :=
+  isMonadActionRun.Build S S0 op N acto runActionTret runActionTbind runActionTaction.
 
 End ActionMonad.
-
 
 Section WriterMonad.
 
