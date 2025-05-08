@@ -1,5 +1,6 @@
 From mathcomp Require Import all_ssreflect ssralg ssrint.
 From mathcomp Require boolp.
+From mathcomp Require Import finmap.
 
 Require Import preamble hierarchy monad_lib fail_lib state_lib.
 From HB Require Import structures.
@@ -47,7 +48,7 @@ HB.structure Definition MonadActionRun S S0 op N:=
   {M of isMonadActionRun S S0 op N M}.
 
 HB.mixin Record isMonadActionRunFail (S : UU0) (S0 : S) (op : Monoid.law S0)
-  (N : failMonad) (M : UU0 -> UU0) of @MonadActionRun S S0 op N M & MonadFailR0 M := {
+  (N : failR0Monad) (M : UU0 -> UU0) of @MonadActionRun S S0 op N M & MonadFailR0 M := {
   runActionTfail : forall (A : UU0),
     runActionT _ (@fail M A) = @fail N _;
 }.
@@ -58,7 +59,8 @@ HB.structure Definition MonadActionRunFail S S0 op N:=
 
 Arguments runActionT {_ _ _ _ _ _}.
 
-Section ActionMonad.
+Module ActionMonad.
+Section actionMonad.
 
 Import Monoid.Theory.
 
@@ -68,9 +70,8 @@ Definition acto : UU0 -> UU0 :=
   fun A => N (A * S)%type.
 Local Notation M := acto.
 
-Let ret : idfun ~~> M := fun A (a : A) => Ret (a, S0).
-
-Let bind A B (m : M A) (f : A -> M B) : M B :=
+Definition ret : idfun ~~> M := fun A (a : A) => Ret (a, S0).
+Definition bind A B (m : M A) (f : A -> M B) : M B :=
     m >>= fun '(a, s1) => f a >>= fun '(b, s2) => (Ret (b, op s1 s2)).
 
 Let left_neutral : BindLaws.left_neutral bind ret.
@@ -101,10 +102,10 @@ apply: eq_bind => -[c s3].
 by rewrite bindretf mulmA.
 Qed.
 
-Let action {A : UU0} s2 (m : M A) : M A :=
+Definition action {A : UU0} s2 (m : M A) : M A :=
   m >>= (fun '(a, s1) => Ret (a, op s2 s1)).
 
-Let runActionT (A : UU0) (m : M A) : N (A * S)%type := m.
+Definition runActionT (A : UU0) (m : M A) : N (A * S)%type := m.
 
 Let action0 A : @action A S0 = id.
 Proof.
@@ -165,7 +166,353 @@ HB.instance Definition _ :=
 HB.instance Definition _ :=
   isMonadActionRun.Build S S0 op N acto runActionTret runActionTbind runActionTaction.
 
+End actionMonad.
 End ActionMonad.
+
+Module ActionFailMonad.
+Section actionFailMonad.
+
+Import Monoid.Theory.
+Import ActionMonad.
+
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : failR0Monad).
+
+Definition acto : UU0 -> UU0 :=
+  fun A => N (A * S)%type.
+Local Notation M := acto.
+
+Let ret : idfun ~~> M := fun A (a : A) => Ret (a, S0).
+Let bind A B (m : M A) (f : A -> M B) : M B :=
+    m >>= fun '(a, s1) => f a >>= fun '(b, s2) => (Ret (b, op s1 s2)).
+
+Let left_neutral : BindLaws.left_neutral bind ret.
+Proof.
+move=> A B /= m f.
+rewrite /bind /ret bindretf -[RHS]bindmret.
+apply: eq_bind => -[b s2].
+by rewrite mul1m.
+Qed.
+
+Let right_neutral : BindLaws.right_neutral bind ret.
+Proof.
+move=> A m /=.
+rewrite /bind /ret -[RHS]bindmret.
+apply: eq_bind => -[a s1].
+by rewrite bindretf mulm1.
+Qed.
+
+Let associative : BindLaws.associative bind.
+Proof.
+move=> A B C m f g.
+rewrite /bind bindA.
+apply: eq_bind => -[a s1].
+rewrite !bindA.
+apply: eq_bind => -[b s2].
+rewrite bindretf bindA.
+apply: eq_bind => -[c s3].
+by rewrite bindretf mulmA.
+Qed.
+
+Let fail (A : UU0) : M A := fail.
+
+Let bindmfail : BindLaws.right_zero bind fail.
+Proof.
+move => B A m.
+rewrite /bind /fail.
+assert
+  ( forall (x : (A * S)),
+    (fun '(a, s1) => hierarchy.fail >>= (fun '(b, s2) => Ret (b, op s1 s2))) x =
+    (fun _ => hierarchy.fail : M B) x
+  ) by (move => [a s1]; rewrite bindfailf //). apply boolp.funext in H.
+by rewrite H bindmfail.
+Qed.
+
+Let bindfailf : BindLaws.left_zero bind fail.
+Proof.
+move => A B f.
+by rewrite /bind /fail bindfailf.
+Qed.
+
+Let action {A : UU0} s2 (m : M A) : M A :=
+  m >>= (fun '(a, s1) => Ret (a, op s2 s1)).
+
+Let runActionT (A : UU0) (m : M A) : N (A * S)%type := m.
+
+Let action0 A : @action A S0 = id.
+Proof.
+apply: boolp.funext.
+rewrite /action => x.
+rewrite -[RHS]bindmret.
+apply: eq_bind => -[a s1].
+by rewrite mul1m.
+Qed.
+
+Let actionA A (x y : S) (m : M A) :
+  action x (action y m) = action (op x y) m.
+Proof.
+rewrite /action bindA.
+apply: eq_bind => -[a s1].
+by rewrite bindretf mulmA.
+Qed.
+
+HB.instance Definition _ :=
+  isMonad_ret_bind.Build acto left_neutral right_neutral associative.
+
+HB.instance Definition _ :=
+  isMonadFail.Build acto bindfailf.
+
+HB.instance Definition _ :=
+  isMonadFailR0.Build acto bindmfail.
+
+Let actionBind A B (s : S) (m : M A) (f : A -> M B) :
+  action s (bind m f) = bind (action s m) f :> M B.
+Proof.
+rewrite /action bindA [RHS]bindA /acto.
+apply eq_bind => -[a s1].
+rewrite bindretf bindA.
+apply eq_bind => -[b s2].
+by rewrite bindretf mulmA.
+Qed.
+
+Let runActionTret (A : UU0) (a : A) :
+  runActionT (ret a) = Ret (a, S0).
+Proof. by rewrite /runActionT /ret. Qed.
+
+Let runActionTbind (A B : UU0) (m : M A) (f : A -> M B) :
+  runActionT (bind m f) =
+  runActionT m >>=
+    fun x => runActionT (f x.1) >>=
+    fun y => Ret (y.1, op x.2 y.2).
+Proof.
+rewrite /runActionT /acto.
+apply eq_bind => -[a s1] /=.
+apply eq_bind => -[b s2] //=.
+Qed.
+
+Let runActionTaction (A : UU0) (s : S) (m : M A) :
+    runActionT (action s m) = 
+    runActionT m >>= fun x => Ret (x.1, op s x.2).
+Proof.
+rewrite /runActionT /action.
+apply eq_bind => -[a s1] //=.
+Qed.
+
+Let runActionTfail : forall (A : UU0),
+    runActionT (fail A) = fail _.
+Proof. trivial. Qed.
+
+HB.instance Definition _ :=
+  isMonadAction.Build S S0 op acto action0 actionA actionBind.
+
+HB.instance Definition _ :=
+  isMonadActionRun.Build S S0 op N acto runActionTret runActionTbind runActionTaction.
+
+HB.instance Definition _ :=
+  isMonadActionRunFail.Build S S0 op N acto runActionTfail.
+
+End actionFailMonad.
+End ActionFailMonad.
+
+(*
+Module ActionFailMonad2.
+Section actionFailMonad2.
+
+Import Monoid.Theory.
+
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : failMonad).
+
+Definition acto : UU0 -> UU0 :=
+  fun A => N (unit + (A * S))%type.
+Local Notation M := acto.
+
+Let ret : idfun ~~> M := fun A (a : A) => Ret (inr (a, S0)).
+
+Let bind A B (m : M A) (f : A -> M B) : M B :=
+  m >>= fun m1 =>
+    match m1 with
+    | inl z => Ret (inl z)
+    | inr (a, s1) =>
+      f a >>= fun m2 =>
+        match m2 with
+        | inl z => Ret (inl z)
+        | inr (b, s2) => Ret (inr (b, op s1 s2))
+        end
+    end.
+
+Let left_neutral : BindLaws.left_neutral bind ret.
+Proof.
+move=> A B /= m f.
+rewrite /bind /ret bindretf -[RHS]bindmret.
+apply: eq_bind => m2; elim: m2 => // -[b s2].
+by rewrite mul1m.
+Qed.
+
+Let right_neutral : BindLaws.right_neutral bind ret.
+Proof.
+move=> A m /=.
+rewrite /bind /ret -[RHS]bindmret.
+apply: eq_bind => m1; elim: m1 => // -[b s2].
+by rewrite bindretf mulm1.
+Qed.
+
+Let associative : BindLaws.associative bind.
+Proof.
+move=> A B C m f g.
+rewrite /bind bindA.
+apply: eq_bind => m1; elim: m1 => [tt | -[a s1]].
+- by rewrite bindretf.
+- rewrite !bindA.
+  apply: eq_bind => m2; elim: m2 => [tt | -[b s2]].
+- by rewrite !bindretf.
+- rewrite bindretf bindA.
+  apply: eq_bind => m3; elim: m3 => [tt | -[c s3]].
+- by rewrite bindretf.
+- by rewrite bindretf mulmA.
+Qed.
+
+Let fail (A : UU0) : M A := Ret (inl tt).
+
+Let bindfailf : BindLaws.left_zero bind fail.
+Proof.
+move => A B f.
+by rewrite /bind /fail bindretf.
+Qed.
+
+Let bindmfail : BindLaws.right_zero bind fail.
+Proof.
+move => B A m.
+rewrite /bind /fail.
+Admitted.
+
+End actionFailMonad2.
+End ActionFailMonad2.
+*)
+
+Module ActionFailMonad3.
+
+Section PR_to_fset.
+Local Open Scope fset_scope.
+Variables (K V : choiceType) (f : K -> V).
+
+Lemma imfset_set1 x : f @` [fset x] = [fset f x].
+Proof.
+apply/fsetP => y.
+by apply/imfsetP/fset1P=> [[x' /fset1P-> //]| ->]; exists x; rewrite ?fset11.
+Qed.
+
+Variables (T : choiceType) (I : eqType) (r : seq I).
+(* In order to avoid "&& true" popping up everywhere, *)
+(*  we prepare a specialized version of bigfcupP *)
+Lemma bigfcupP' x (F : I -> {fset T}) :
+  reflect (exists2 i : I, (i \in r) & x \in F i)
+          (x \in \bigcup_(i <- r | true) F i).
+Proof.
+apply: (iffP idP) => [|[i ri]]; last first.
+  by apply: fsubsetP x; rewrite bigfcup_sup.
+rewrite big_seq_cond; elim/big_rec: _ => [|i _ /andP[ri Pi] _ /fsetUP[|//]].
+  by rewrite in_fset0.
+by exists i; rewrite ?ri.
+Qed.
+End PR_to_fset.
+
+Section actionFailMonad3.
+
+Local Open Scope fset_scope.
+Import Monoid.Theory.
+
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : failMonad).
+Local Obligation Tactic := try by [].
+
+Definition choice_of_Type (T : Type) : choiceType :=
+  Choice.Pack (Choice.Class (boolp.gen_choiceMixin T) (boolp.gen_eqMixin T)).
+
+Definition acto : Type -> Type :=
+  fun A => {fset (choice_of_Type A * choice_of_Type S)}.
+Local Notation M := acto.
+
+Let ret : idfun ~~> M := fun A (a : A) =>
+  [fset (a : choice_of_Type A, S0 : choice_of_Type S)].
+
+Let bind A B (m : M A) (f : A -> M B) : M B :=
+  \bigcup_(i <- (fun x : choice_of_Type A * choice_of_Type S =>
+      \bigcup_(j <- (fun y : choice_of_Type B * choice_of_Type S =>
+        [fset (y.1 : choice_of_Type B, op x.2 y.2 : choice_of_Type S)]
+      ) @` (f x.1)) j
+  ) @` m) i.
+
+Let left_neutral : BindLaws.left_neutral bind ret.
+Proof.
+move=> A B m f.
+rewrite /bind /ret imfset_set1 big_seq_fset1.
+assert (forall x, op S0 x = x)
+  by (intros; rewrite mul1m //);
+  apply boolp.funext in H.
+rewrite H //=.
+assert ([fset [fset y] | y in f m] = [fset [fset (y.1, y.2)] | y in f m]).
+assert (forall y : choice_of_Type B * choice_of_Type S,
+        [fset y] = [fset (y.1, y.2)]).
+move => [b s]; by rewrite //.
+apply boolp.funext in H0.
+by rewrite -H0.
+rewrite -H0.
+assert ([fset [fset y] | y in f m] = [fset f m]).
+apply/fset1P.
+apply/imfsetP.
+exists [fset [fset y] | y in f m] => //.
+admit.
+(*
+Search fset1.
+
+
+
+
+apply/fset1P.
+case_eq (x == f m) => /eqP eq; admit.
+*)
+by rewrite H1 big_seq_fset1.
+Admitted.
+
+
+(*
+Let right_neutral : BindLaws.right_neutral bind ret.
+Proof.
+move=> A B /=.
+rewrite /bind /ret.
+apply/fsetP => /= x.
+apply/bigfcupP'; case: ifPn => xBs.
+set x' := (x : choice_of_Type A * choice_of_Type S).
+exists [fset x']; last by rewrite inE.
+apply/imfsetP; exists x' => //=; case: x' => /= a s1.
+apply/fsetP => /= y.
+(*
+apply/bigfcupP'; case: ifPn => yBs.
+
+apply/fsetP => /= x; apply/bigfcupP'; case: ifPn => xBs.
+  set x' := (x : choice_of_Type A * choice_of_Type S).
+  exists [fset x']; last by rewrite inE.
+  apply/imfsetP; exists x' => //=; case: x' => /=.
+*)
+Admitted.
+
+(*
+move=> A B /=; rewrite boolp.funeqE => s.
+apply/fsetP => /= x; apply/bigfcupP'; case: ifPn => xBs.
+  set x' := (x : choice_of_Type A * choice_of_Type S).
+  exists [fset x']; last by rewrite inE.
+  by apply/imfsetP; exists x' => //=; case: x'.
+case => /= SA /imfsetP[] /= sa saBs ->{SA} /fset1P => Hx.
+by move: xBs; rewrite Hx; apply/negP; rewrite negbK; case: sa saBs Hx.
+*)
+
+
+(f : A -> S -> {fset (choice_of_Type B * choice_of_Type S)})
+
+Let ret : idfun ~~> M := fun A (a : A) => Ret (a, S0).
+Let bind A B (m : M A) (f : A -> M B) : M B :=
+    m >>= fun '(a, s1) => f a >>= fun '(b, s2) => (Ret (b, op s1 s2)).
+*)
+End actionFailMonad3.
+End ActionFailMonad3.
 
 Section WriterMonad.
 
