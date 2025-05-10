@@ -210,17 +210,13 @@ Lemma writeA a b :
   (write a) >> (write b) = write (op a b).
 Proof. by rewrite /write -actionBind bindretf actionA. Qed.
 
-Lemma writeRun (s : S) :
+Lemma runActionTwrite (s : S) :
   runActionT (write s) = Ret (tt, s).
 Proof. by rewrite /write runActionTaction runActionTret bindretf /= mulm1. Qed.
 
 End WriterMonad.
 
 Section Definitions.
-
-Lemma mem_tail {A:eqType} x a {l : seq A} : x \in l -> x \in a::l.
-Proof. rewrite inE => ->; exact/orbT. Qed.
-Hint Resolve mem_head mem_tail : core.
 
 Definition var : Type := nat.
 
@@ -264,6 +260,61 @@ Fixpoint union (vl1 vl2 : list var) :=
     if v \in vl2 then union vl vl2 else union vl (v :: vl2)
   else vl2.
 
+Fixpoint vars (t : btree) : list var :=
+  match t with
+  | btVar x => [:: x]
+  | btInt _ => nil
+  | btNode t1 t2 => union (vars t1) (vars t2)
+  end.
+
+Definition unifies (sm : substType) t1 t2 := subst sm t1 == subst sm t2.
+Definition unifies_pairs (sm : substType) := all (fun p => unifies sm p.1 p.2).
+
+Fixpoint size_tree (t : btree) : nat :=
+  if t is btNode t1 t2 then 1 + size_tree t1 + size_tree t2 else 1.
+
+Definition size_pairs (l : constr_list) :=
+  sumn [seq size_tree p.1 + size_tree p.2 | p <- l].
+
+Fixpoint vars_pairs (l : constr_list) : list var :=
+  match l with
+  | nil => nil
+  | (t1, t2) :: r =>
+    union (union (vars t1) (vars t2)) (vars_pairs r)
+  end.
+
+End Definitions.
+
+Section op.
+Lemma sconsA : associative subst_comp.
+Proof.
+  move => ? ? z; rewrite /subst_comp.
+  apply: boolp.funext => v /=.
+  by elim: (z v) => //= t1 -> t2 ->.
+Qed.
+
+Lemma scons0s : left_id subst0 subst_comp.
+Proof.
+  move => x; apply boolp.funext => v.
+  rewrite /subst_comp.
+  by elim: (x v) => //= t1 -> t2 ->.
+Qed.
+
+Lemma sconss0 : right_id subst0 subst_comp.
+Proof. move => x; exact: boolp.funext. Qed.
+
+HB.instance Definition substIsLaw :=
+  Monoid.isLaw.Build substType subst0 subst_comp sconsA scons0s sconss0.
+
+Definition op := HB.pack_for (Monoid.law subst0) subst_comp substIsLaw.
+End op.
+
+Section Lemmas.
+
+Lemma mem_tail {A:eqType} x a {l : seq A} : x \in l -> x \in a::l.
+Proof. rewrite inE => ->; exact/orbT. Qed.
+Hint Resolve mem_head mem_tail : core.
+
 Lemma in_union_or v vl1 vl2 :
   v \in union vl1 vl2 = (v \in vl1) || (v \in vl2).
 Proof.
@@ -281,12 +332,40 @@ Proof.
   case: ifP => Hv; by rewrite IH //= Hv.
 Qed.
 
-Fixpoint vars (t : btree) : list var :=
-  match t with
-  | btVar x => [:: x]
-  | btInt _ => nil
-  | btNode t1 t2 => union (vars t1) (vars t2)
-  end.
+Lemma eq_node t1_1 t1_2 t2_1 t2_2 :
+  btNode t1_1 t1_2 = btNode t2_1 t2_2 <->
+  (t1_1 = t2_1) /\ (t1_2 = t2_2).
+Proof.
+split => [h | [-> -> //]].
+split.
+by injection h => ? ->.
+by injection h => -> ?.
+Qed.
+
+Lemma eqb_node t1_1 t1_2 t2_1 t2_2 :
+  btNode t1_1 t1_2 == btNode t2_1 t2_2 =
+  (t1_1 == t2_1) && (t1_2 == t2_2).
+Proof.
+case_eq ((t1_1 == t2_1) && (t1_2 == t2_2)) => [/andP | ].
+- move => [/eqP -> /eqP ->].
+  exact/eqP.
+- have: ~~((t1_1 == t2_1) && (t1_2 == t2_2)) ->
+        ~~(btNode t1_1 t1_2 == btNode t2_1 t2_2).
+  apply: contraNneq => h.
+  apply eq_node in h; destruct h; generalize H H0.
+  by move => -> ->; rewrite !eq_refl.
+  move => h h1.
+  apply: eqP.
+  rewrite eqbF_neg.
+  apply: h.
+  rewrite -eqbF_neg.
+  apply /eqP.
+  exact/h1.
+Qed.
+
+Lemma subst_node s t1 t2:
+  subst s (btNode t1 t2) = btNode (subst s t1) (subst s t2).
+Proof. by rewrite /subst. Qed.
 
 Lemma subst_same v t' t : v \notin (vars t) -> subst (subst1 v t') t = t.
 Proof.
@@ -295,66 +374,39 @@ Proof.
   - by rewrite /subst1 in_union_or negb_or => /andP[] /IH1 -> /IH2 ->.
 Qed.
 
-(*
-Definition unifies s (t1 t2 : btree) := subst_list s t1 = subst_list s t2.
-Definition unifies_pairs s (l : constr_list) :=
-  forall t1 t2, (t1,t2) \in l -> unifies s t1 t2.
-*)
+Lemma unifies_same sm t : unifies sm t t.
+Proof. by rewrite /unifies. Qed.
 
-Fixpoint size_tree (t : btree) : nat :=
-  if t is btNode t1 t2 then 1 + size_tree t1 + size_tree t2 else 1.
-
-Definition size_pairs (l : constr_list) :=
-  sumn [seq size_tree p.1 + size_tree p.2 | p <- l].
-
-Fixpoint vars_pairs (l : constr_list) : list var :=
-  match l with
-  | nil => nil
-  | (t1, t2) :: r => union (union (vars t1) (vars t2)) (vars_pairs r)
-  end.
-
-End Definitions.
-
-Definition unifies (sm : substType) t1 t2 := subst sm t1 == subst sm t2.
-Definition unifies_pairs (sm : substType) :=
-  all (fun p => unifies sm p.1 p.2).
-
-Section op.
-Lemma sconsA : associative subst_comp.
+Lemma unifies_pairs_same sm t l :
+  unifies_pairs sm l -> unifies_pairs sm ((t,t) :: l).
 Proof.
-  move => x y z.
-  rewrite /subst_comp.
-  apply: boolp.funext => v /=.
-  by elim: (z v) => //= t1 -> t2 ->.
+  move=> H; apply /andP; split => //.
+  exact: unifies_same.
 Qed.
 
-Lemma scons0s : left_id subst0 subst_comp.
+Lemma unifies_swap sm t1 t2 :
+  unifies sm t1 t2 -> unifies sm t2 t1.
+Proof. by rewrite /unifies => /eqP ->. Qed.
+
+Lemma unifies_pairs_swap sm t1 t2 l :
+  unifies_pairs sm ((t1, t2) :: l) -> unifies_pairs sm ((t2, t1) :: l).
 Proof.
-  move => x.
-  apply boolp.funext => v.
-  rewrite /subst_comp.
-  by elim: (x v) => //= t1 -> t2 ->.
+  move=> /= /andP h.
+  elim: h => [hl hr].
+  apply /andP; split => //.
+  exact/unifies_swap.
 Qed.
 
-Lemma sconss0 : right_id subst0 subst_comp.
-Proof.
-  move => x.
-  exact: boolp.funext.
-Qed.
+End Lemmas.
 
-HB.instance Definition substIsLaw :=
-  Monoid.isLaw.Build substType subst0 subst_comp sconsA scons0s sconss0.
+Section Unify.
 
-Definition op := HB.pack_for (Monoid.law subst0) subst_comp substIsLaw.
-End op.
+Variables (N : failMonad) (M : actionRunFailMonad op N).
+Let write := write M.
 
 Section Unify1.
 
-Variables (N : failMonad) (M : actionRunFailMonad op N).
-
 Variable unify2 : constr_list -> M unit.
-
-Let write := write M.
 
 Definition unify_subst x t r : M unit :=
   if x \in vars t then fail
@@ -383,17 +435,159 @@ else
 End Unify1.
 
 Section Unify2.
-Variables (N : failMonad) (M : actionRunFailMonad op N).
-Fixpoint unify2 (h : nat) l : M unit :=
-  if h is h.+1 then @unify1 N M (unify2 h) (size_pairs l + 1) l else fail.
-End Unify2.
 
-Section Unify.
-Variables (N : failMonad) (M : actionRunFailMonad op N).
+Fixpoint unify2 (h : nat) l : M unit :=
+  if h is h.+1 then unify1 (unify2 h) (size_pairs l + 1) l else fail.
+
+End Unify2.
 
 Definition unify t1 t2 : N (unit * substType)%type :=
   let l := [:: (t1,t2)] in
-  runActionT (unify2 M (size (vars_pairs l) + 1) l).
+  runActionT (unify2 (size (vars_pairs l) + 1) l).
+
+Section Soundness.
+
+Lemma unify_fail A B (x y : (A * substType) -> N B) :
+  runActionT (fail : M A) >>= x = runActionT (fail : M A) >>= y.
+Proof. by rewrite runActionTfail !bindfailf. Qed.
+Hint Resolve unify_fail : core.
+
+Lemma unifies_subst s v t :
+  (v \in vars t) = false -> 
+  unifies (subst_comp (subst1 v t) s) (btVar v) t.
+Proof.
+move => Hnin /=; rewrite /unifies /subst_comp.
+
+(*
+Lemma subst_same v t' t : v \notin (vars t) -> subst (subst1 v t') t = t.
+
+rewrite subst_comp.
+
+elim t.
+
+(*
+- move => v0; case_eq (v == v0) => /eqP Heq.
+  + by rewrite Heq.
+*)
+*)
+Admitted.
+
+Lemma unifies_pairs_subst s v t l :
+  unifies (subst_comp (subst1 v t) s) (btVar v) t &&
+  unifies_pairs (subst_comp (subst1 v t) s) l =
+  unifies_pairs s ([seq subst_pair (subst1 v t) i | i <- l]).
+Proof.
+
+Admitted.
+
+Lemma unify_subst_sound h v t l :
+  (forall l,
+    runActionT (unify2 h l) >>=
+    (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
+    runActionT (unify2 h l) >> Ret tt
+  ) ->
+  runActionT (unify_subst (unify2 h) v t l) >>= 
+    (fun x => assert (fun _ => unifies_pairs x.2 ((btVar v, t) :: l)) tt) =
+  runActionT (unify_subst (unify2 h) v t l) >> Ret tt.
+Proof.
+rewrite /unify_subst.
+case Hocc: (v \in _) => // IH.
+rewrite runActionTbind runActionTwrite !bindretf !bindA /=.
+have: forall x : unit * substType,
+      (fun x => Ret (x.1, subst_comp (subst1 v t) x.2) >>=
+        (fun x0 => assert (fun=> unifies x0.2 (btVar v) t && unifies_pairs x0.2 l) tt)) x =
+      (fun x => @assert N unit (fun=> unifies (subst_comp (subst1 v t) x.2) (btVar v) t &&
+        unifies_pairs (subst_comp (subst1 v t) x.2) l) tt) x
+by move => x; rewrite bindretf /=.
+have: forall x : unit * substType,
+      (fun x => Ret (x.1, subst_comp (subst1 v t) x.2) >> Ret tt) x =
+      (fun x => Ret tt : N unit) x
+by move => x; rewrite bindretf.
+move => /boolp.funext -> /boolp.funext ->.
+
+Admitted.
+
+Lemma unify2_sound h l :
+  runActionT (unify2 h l) >>= (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
+  runActionT (unify2 h l) >> Ret tt.
+Proof.
+elim: h l => /= [l | h IH l].
+- by exact/unify_fail.
+move: (size_pairs l + 1) => h'.
+elim: h' l => //= [l | h' IH' [| [t1 t2] l] /=].
+- by exact/unify_fail.
+- by rewrite assertE guardT bindskipf.
+destruct t1, t2; try by exact/unify_fail.
+- case: ifP; move=> /eqP eq.
+  + rewrite eq -IH'.
+    have: forall x : unit * substType,
+          (fun x => assert (fun=> unifies x.2 (btVar v0) (btVar v0) && unifies_pairs x.2 l) tt) x = 
+          (fun x => @assert N unit (fun=> unifies_pairs x.2 l) tt) x
+    by (intro x; rewrite unifies_same //=).
+    by move => /boolp.funext ->.
+  + exact/unify_subst_sound.
+- exact/unify_subst_sound.
+- exact/unify_subst_sound.
+- have: forall x : unit * substType,
+        (fun x => @assert N unit (fun=> unifies_pairs x.2 ((btVar v, btInt n) :: l)) tt) x = 
+        (fun x => @assert N unit (fun=> unifies_pairs x.2 ((btInt n, btVar v) :: l)) tt) x
+  by move => x /=; case Hswap: (unifies x.2 (btVar v) (btInt n)) => /=;
+    rewrite /unifies eq_sym in Hswap; by rewrite /unifies Hswap.
+  move => /boolp.funext /= <-; exact/unify_subst_sound.
+- case_eq (n == n0) => /eqP /= H; try by exact/unify_fail.
+  have: forall x : unit * substType,
+        (fun x => assert (fun=> (unifies x.2 (btInt n) (btInt n0)) && unifies_pairs x.2 l) tt) x = 
+        (fun x => @assert N unit (fun=> unifies_pairs x.2 l) tt) x
+  by move => x /=; rewrite H unifies_same //.
+  move => /boolp.funext ->. exact/IH'.
+- have: forall x : unit * substType,
+        (fun x => @assert N unit (fun=> unifies_pairs x.2 ((btVar v, (btNode t1_1 t1_2)) :: l)) tt) x = 
+        (fun x => @assert N unit (fun=> unifies_pairs x.2 (((btNode t1_1 t1_2), btVar v) :: l)) tt) x
+  by move => x /=; case Hswap: (unifies x.2 (btVar v) (btNode t1_1 t1_2)) => /=;
+    rewrite /unifies eq_sym in Hswap; by rewrite /unifies Hswap.
+  move => /boolp.funext /= <-; exact/unify_subst_sound.
+- have: forall x : unit * substType,
+        (fun x => @assert N unit
+          (fun => (unifies x.2 (btNode t1_1 t1_2) (btNode t2_1 t2_2)) && unifies_pairs x.2 l) tt) x = 
+        (fun x => @assert N unit (fun => unifies_pairs x.2 [:: (t1_1, t2_1), (t1_2, t2_2) & l]) tt) x.
+  move => x; rewrite /unifies !subst_node eqb_node /unify.
+  change (unifies_pairs x.2 [:: (t1_1, t2_1), (t1_2, t2_2) & l])
+    with (unifies x.2 t1_1 t2_1 && unifies_pairs x.2 [:: (t1_2, t2_2) & l]).
+  change (unifies_pairs x.2 [:: (t1_2, t2_2) & l])
+    with (unifies x.2 t1_2 t2_2 && unifies_pairs x.2 l).
+  by rewrite /unifies andbA.
+  move => /boolp.funext ->.
+  exact: IH'.
+Qed.
+
+(*
+
+((subst x.2 t1_1) == (subst x.2 t2_1)) &&
+          ((subst x.2 t1_2) == (subst x.2 t2_2)) &&
+          unifies_pairs x.2 l
+
+*)
+
+Theorem soundness t1 t2:
+  unify t1 t2 >>= (fun x => assert (fun _ => unifies x.2 t1 t2) tt) =
+  unify t1 t2 >> Ret tt.
+Proof.
+rewrite /unify /=.
+have: forall x : unit * substType,
+      (fun x => assert (fun=> unifies x.2 t1 t2) tt) x =
+      (fun x => @assert N unit (fun=> unifies_pairs x.2 [:: (t1, t2)]) tt) x.
+have: forall x, unifies x t1 t2 = unifies_pairs x [:: (t1, t2)]
+by move => ?; rewrite /= Bool.andb_true_r //.
+by move => h ?; rewrite h.
+move => /boolp.funext ->.
+exact/unify2_sound.
+Qed.
+
+End Soundness.
+
+Section Completeness.
+
+End Completeness.
 
 End Unify.
 
