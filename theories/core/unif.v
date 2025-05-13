@@ -339,8 +339,7 @@ Lemma eq_node t1_1 t1_2 t2_1 t2_2 :
   btNode t1_1 t1_2 = btNode t2_1 t2_2 <->
   (t1_1 = t2_1) /\ (t1_2 = t2_2).
 Proof.
-split => [h | [-> -> //]].
-split.
+split => [h | [-> -> //]]; split.
 by injection h => ? ->.
 by injection h => -> ?.
 Qed.
@@ -376,6 +375,11 @@ Proof.
   - by rewrite /subst1 inE eq_sym => /negbTE ->.
   - by rewrite /subst1 in_union_or negb_or => /andP[] /IH1 -> /IH2 ->.
 Qed.
+
+Lemma subst_through s v t t':
+  subst (fun v0 : var => subst s (subst1 v t' v0)) t =
+  subst s (subst (subst1 v t') t).
+Proof. elim: t => //= ? -> ? -> //. Qed.
 
 Lemma unifies_same sm t : unifies sm t t.
 Proof. by rewrite /unifies. Qed.
@@ -454,15 +458,6 @@ Lemma unify_fail A B (x y : (A * substType) -> N B) :
   runActionT (fail : M A) >>= x = runActionT (fail : M A) >>= y.
 Proof. by rewrite runActionTfail !bindfailf. Qed.
 Hint Resolve unify_fail : core.
-
-Lemma subst_through s v t:
-  forall t',
-  subst (fun v0 : var => subst s (subst1 v t' v0)) t =
-  subst s (subst (subst1 v t') t).
-Proof.
-elim: t => //= ? h1 ? h2 ?.
-by rewrite h1 h2.
-Qed.
 
 Lemma unifies_subst s v t :
   (v \in vars t) = false -> 
@@ -602,238 +597,3 @@ Section Completeness.
 End Completeness.
 
 End Unify.
-
-(*
-
-Section Unify.
-Variable N : writerMonad subst_rul.
-Variable M : writerRunMonad subst_rul substMonoid substAcc N.
-
-Definition unify t1 t2 : N (unit * substMonoid)%type :=
-  let l := [:: (t1,t2)] in
-  runWriteT
-  (unify2 N M (size (vars_pairs l) + 1) l)
-  substNone.
-
-Lemma subst_btNode v t t1 t2 :
-  subst v t (btNode t1 t2) = btNode (subst v t t1) (subst v t t2).
-Proof. by elim: v t t1 t2 => /=. Qed.
-
-Lemma subst_list_btNode s t1 t2 :
-  subst_list s (btNode t1 t2) = btNode (subst_list s t1) (subst_list s t2).
-Proof. by elim: s t1 t2 => /=. Qed.
-
-Lemma unifies_same sm t : unifies sm t t.
-Proof. by rewrite /unifies. Qed.
-
-Lemma unifies_pairs_same sm t l :
-  unifies_pairs sm l -> unifies_pairs sm ((t,t) :: l).
-Proof.
-  move=> H /=.
-  apply (Bool.reflect_iff _ (unifies sm t t && unifies_pairs sm l) andP).
-  split => //=; (apply unifies_same || apply (Bool.reflect _ _ eqP)).
-Qed.
-
-Lemma unifies_swap sm t1 t2 :
-  unifies sm t1 t2 -> unifies sm t2 t1.
-Proof.
-  rewrite /unifies; intro H.
-  apply (Bool.reflect_iff _ _ eqP) in H.
-  by rewrite H.
-Qed.
-
-Lemma unifies_pairs_swap sm t1 t2 l :
-  unifies_pairs sm ((t1, t2) :: l) -> unifies_pairs sm ((t2, t1) :: l).
-Proof.
-  move=> /= H.
-  apply (Bool.reflect_iff _ _ andP) in H; case H => hl hr.
-  apply (Bool.reflect_iff _ (unifies sm t2 t1 && unifies_pairs sm l) andP).
-  split => //=; exact/unifies_swap/hl.
-Qed.
-
-(*
-Lemma unifies_subst sm v t t1 t2 :
-  (v \notin vars t) -> t <> btVar v ->
-  unifies sm (btVar v) t ->
-  unifies sm t1 t2 ->
-  unifies sm (subst v t t1) (subst v t t2).
-Proof.
-  rewrite /unifies.
-  induction t1; induction t2; move=> /= nin neq /eqP Hv /eqP H.
-  - case_eq (v0 == v); case_eq (v1 == v) => /eqP eq1 /eqP eq2 //.
-    + by rewrite -H eq2 Hv.
-    + by rewrite H eq1 Hv.
-    + by rewrite H.
-  - case_eq (v0 == v) => /eqP eq.
-    + by rewrite -Hv -eq H.
-    + by rewrite H.
-  - case_eq (v0 == v) => /eqP eq.
-    + rewrite -Hv -eq H -subst_btNode eq.
-       -IHt2_1 -IHt2_2.
-
-Lemma unifies_pairs_subst sm v t l :
-  unifies_pairs sm ((btVar v, t) :: l) -> unifies_pairs sm (map (subst_pair v t) l).
-Proof.
-  move=> /= H.
-  induction l => //; destruct a => /=.
-*)
-
-(* Soundness *)
-
-(*
-Lemma unify_one_rule h v t sm l :
-  runWriteT (unify2 N M h l) (substAcc (v, t) sm) >>=
-    (fun x => assert (fun _ => unifies_pairs x.2 ((btVar v, t) :: l)) tt) =
-  runWriteT (unify2 N M h l) sm >>=
-    (fun x => assert (fun _ => unifies_pairs x.2 l) tt).
-Admitted.
-*)
-
-Lemma unify_subst_sound h v t sm l :
-  (forall l,
-    runWriteT (unify2 N M h l) sm >>=
-    (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
-    runWriteT (unify2 N M h l) sm >> Ret tt
-  ) ->
-  runWriteT (unify_subst N M (unify2 N M h) v t l) sm >>= 
-    (fun x => assert (fun _ => unifies_pairs x.2 ((btVar v, t) :: l)) tt) =
-  runWriteT (unify_subst N M (unify2 N M h) v t l) sm >> Ret tt
-
-with unify2_sound h sm l :
-  runWriteT (unify2 N M h l) sm >>= (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
-  runWriteT (unify2 N M h l) sm >> Ret tt.
-Proof.
--------
-  rewrite /unify_subst.
-  case Hocc: (v \in _) => // IH; try by rewrite ?runWriteTfail ?bindfailf.
-  rewrite ?runWriteTbind ?runWriteTwrite ?bindretf.
-  
-  admit.
-  (*
-  assert (forall x,
-          unifies_pairs x ((btVar v, t) :: l) =
-          unifies_pairs x (map (subst_pair v t) l)).
-  rewrite /unifies_pairs /=.
-
-  induction l => sm' //=.
-  - rewrite Bool.andb_true_r.
-  Check [seq subst_pair v t i | i <- l].
-  apply unify2_sound.
-  *)
--------
-  elim: h l => /= [l | h IH l].
-  - by rewrite ?runWriteTfail ?bindfailf.
-  move: (size_pairs l + 1) => h'.
-  elim: h' l => //= [l | h' IH' [| [t1 t2] l] /=].
-  - by rewrite ?runWriteTfail ?bindfailf.
-  - by rewrite ?runWriteTret assertE guardT bindskipf.
-  destruct t1, t2; try by rewrite ?runWriteTfail ?bindfailf.
-  - case: ifP; move=> /eqP eq.
-    + rewrite eq -IH'.
-      assert (forall x,
-               (fun x : unit * substMonoid =>
-               assert (fun=> unifies x.2 (btVar v0) (btVar v0) && unifies_pairs x.2 l) tt) x = 
-               (fun x : unit * substMonoid => @assert N unit (fun=> unifies_pairs x.2 l) tt) x)
-      by (intro x; rewrite unifies_same //=); apply boolp.funext in H.
-      by rewrite H.
-    + exact/unify_subst_sound.
-  - exact/unify_subst_sound.
-  - exact/unify_subst_sound.
-  - assert (forall x,
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun=> unifies_pairs x.2 ((btVar v, btInt n) :: l)) tt) x = 
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun=> unifies_pairs x.2 ((btInt n, btVar v) :: l)) tt) x)
-    by (intro x => //=; case_eq (unifies x.2 (btVar v) (btInt n)) => eq /=;
-        rewrite /unifies eq_sym in eq; by rewrite /unifies eq); apply boolp.funext in H.
-    simpl in H; rewrite <- H; exact/unify_subst_sound.
-  - case_eq (n == n0) => eq; rewrite /unifies; try by rewrite ?runWriteTfail ?bindfailf.
-    apply (Bool.reflect_iff _ _ eqP) in eq.
-    assert (forall x,
-             (fun x : unit * substMonoid => 
-              assert (fun=> (x.2 (btInt n) == x.2 (btInt n0)) && unifies_pairs x.2 l) tt) x = 
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun=> unifies_pairs x.2 l) tt) x)
-    by (intro x; rewrite eq eq_refl //=); apply boolp.funext in H.
-    by rewrite H IH'.
-  - assert (forall x,
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun=> unifies_pairs x.2 ((btVar v, (btNode t1_1 t1_2)) :: l)) tt) x = 
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun=> unifies_pairs x.2 (((btNode t1_1 t1_2), btVar v) :: l)) tt) x)
-    by (intro x => //=; case_eq (unifies x.2 (btVar v) (btNode t1_1 t1_2)) => eq /=;
-        rewrite /unifies eq_sym in eq; by rewrite /unifies eq); apply boolp.funext in H.
-    simpl in H; rewrite <- H; exact/unify_subst_sound.
-  - rewrite /unifies.
-    assert (forall sm t1 t2, sm (btNode t1 t2) = btNode (sm t1) (sm t2)) by admit.
-    assert (forall x,
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun => (x.2 (btNode t1_1 t1_2) == x.2 (btNode t2_1 t2_2)) && unifies_pairs x.2 l) tt) x = 
-             (fun x : unit * substMonoid => 
-              @assert N unit (fun => ((btNode (x.2 t1_1) (x.2 t1_2)) == (btNode (x.2 t2_1) (x.2 t2_2))) && unifies_pairs x.2 l) tt) x)
-    by (intro x; rewrite 2!H //); apply boolp.funext in H0.
-    rewrite H0 /=.
-    admit.
-Admitted. 
-
-(*
-    assert (forall x,
-             (N # fun x : unit * substMonoid =>
-             assert (fun=> unifies x.2 (btVar v0) (btVar v0) && unifies_pairs x.2 l) tt) x = 
-             (N # fun x : unit * substMonoid => @assert N unit (fun=> unifies_pairs x.2 l) tt) x).
-    intro x. congruence. rewrite unifies_same //=.
-
-    rewrite ?bindE.
-    rewrite H.
-
-    congruence.
-
-
-    rewrite unifies_same.
-
-  Check unifies_pairs_same.
-
-
-  by move=> /eqP <- /IH' /unifies_pairs_same.
-
-  change (guard (xpredT tt) >> Ret tt).
-
-
-- rewrite ?runWriteTret.
-  simpl in IHh. rewrite ?runWriteTret in IHh.
-Check xpredT.
-*)
-
-(*
-  induction h => /=; try by rewrite ?runWriteTfail ?bindfailf.
-  move: (size_pairs [seq subst_pair v t i | i <- l] + 1) => h'.
-  induction h' => /=; try by rewrite ?runWriteTfail ?bindfailf.
-  induction l => //=.
-  rewrite ?runWriteTret ?bindretf /= /unifies /substAcc/substNone /= eq_refl.
-  assert (subst v t t = t) by (apply subst_same; rewrite /negb Hocc //=).
-  by rewrite H eq_refl /= assertE guardT bindskipf.
-  destruct a => /=.
-  destruct (subst v t b), (subst v t b0) => /=; try by rewrite ?runWriteTfail ?bindfailf.
-Admitted.
-*)
-
-Theorem soundness t1 t2:
-  unify t1 t2 >>= (fun x => assert (fun _ => unifies x.2 t1 t2) tt) =
-  unify t1 t2 >> Ret tt.
-Proof.
-  assert (forall x,
-          (fun x : unit * substMonoid => assert (fun=> unifies x.2 t1 t2) tt) x =
-          (fun x : unit * substMonoid =>
-           @assert N unit (fun=> unifies_pairs x.2 [:: (t1, t2)]) tt) x)
-  by (assert (forall x, unifies x t1 t2 = unifies_pairs x [:: (t1, t2)])
-      by (intro x; rewrite /= Bool.andb_true_r //);
-      intro x; rewrite H //); apply boolp.funext in H.
-  by rewrite H; apply unify2_sound.
-Qed.
-
-(* Completeness *)
-
-End Unify.
-
-
-*)
