@@ -247,7 +247,7 @@ match t with
 end.
 
 Definition subst_comp (s1 s2 : var -> btree) (v : var) : btree :=
-  subst s1 (s2 v).
+  subst s2 (s1 v).
 
 Definition subst_rul := (var * btree)%type.
 Definition constr := (btree * btree)%type.
@@ -288,20 +288,23 @@ End Definitions.
 Section op.
 Lemma sconsA : associative subst_comp.
 Proof.
-  move => ? ? z; rewrite /subst_comp.
+  move => x ? ?; rewrite /subst_comp.
   apply: boolp.funext => v /=.
-  by elim: (z v) => //= t1 -> t2 ->.
+  by elim: (x v) => //= t1 -> t2 ->.
 Qed.
 
 Lemma scons0s : left_id subst0 subst_comp.
 Proof.
-  move => x; apply boolp.funext => v.
-  rewrite /subst_comp.
-  by elim: (x v) => //= t1 -> t2 ->.
+  move => x; apply: boolp.funext => v.
+  rewrite /subst_comp //=.
 Qed.
 
 Lemma sconss0 : right_id subst0 subst_comp.
-Proof. move => x; exact: boolp.funext. Qed.
+Proof.
+  move => x; apply: boolp.funext => v.
+  rewrite /subst_comp.
+  by elim: (x v) => //= t1 -> t2 ->.
+Qed.
 
 HB.instance Definition substIsLaw :=
   Monoid.isLaw.Build substType subst0 subst_comp sconsA scons0s sconss0.
@@ -452,28 +455,26 @@ Lemma unify_fail A B (x y : (A * substType) -> N B) :
 Proof. by rewrite runActionTfail !bindfailf. Qed.
 Hint Resolve unify_fail : core.
 
+Lemma subst_through s v t:
+  forall t',
+  subst (fun v0 : var => subst s (subst1 v t' v0)) t =
+  subst s (subst (subst1 v t') t).
+Proof.
+elim: t => //= ? h1 ? h2 ?.
+by rewrite h1 h2.
+Qed.
+
 Lemma unifies_subst s v t :
   (v \in vars t) = false -> 
   unifies (subst_comp (subst1 v t) s) (btVar v) t.
 Proof.
-move => Hnin /=; rewrite /unifies /subst_comp /=.
-(*have: forall v0 : var,
-      subst (subst1 v t) (s v0) =*)
-      
-
-(*
-Lemma subst_same v t' t : v \notin (vars t) -> subst (subst1 v t') t = t.
-
-rewrite subst_comp.
-
-elim t.
-
-(*
-- move => v0; case_eq (v == v0) => /eqP Heq.
-  + by rewrite Heq.
-*)
-*)
-Admitted.
+move => /eqP Hnin /=; rewrite /unifies /subst_comp /=.
+change (subst1 v t v) with (if v == v then t else btVar v).
+have: v == v by exact/eq_refl.
+move => ->.
+rewrite eqbF_neg in Hnin.
+rewrite subst_through // subst_same //.
+Qed.
 
 Lemma unifies_pairs_subst s v t l :
   (v \in vars t) = false ->
@@ -490,11 +491,9 @@ elim: l => /= [| a l IHl].
   have: unifies (subst_comp (subst1 v t) s) a.1 a.2 =
         unifies s (subst (subst1 v t) a.1) (subst (subst1 v t) a.2).
   rewrite /subst_comp /unifies /=.
-  by admit.
+  rewrite !subst_through => //.
   by move => ->.
-Admitted.
-
-Check inE.
+Qed.
 
 Lemma unify_subst_sound h v t l :
   (forall l,
