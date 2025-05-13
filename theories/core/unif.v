@@ -456,7 +456,10 @@ Lemma unifies_subst s v t :
   (v \in vars t) = false -> 
   unifies (subst_comp (subst1 v t) s) (btVar v) t.
 Proof.
-move => Hnin /=; rewrite /unifies /subst_comp.
+move => Hnin /=; rewrite /unifies /subst_comp /=.
+(*have: forall v0 : var,
+      subst (subst1 v t) (s v0) =*)
+      
 
 (*
 Lemma subst_same v t' t : v \notin (vars t) -> subst (subst1 v t') t = t.
@@ -473,12 +476,25 @@ elim t.
 Admitted.
 
 Lemma unifies_pairs_subst s v t l :
+  (v \in vars t) = false ->
   unifies (subst_comp (subst1 v t) s) (btVar v) t &&
   unifies_pairs (subst_comp (subst1 v t) s) l =
   unifies_pairs s ([seq subst_pair (subst1 v t) i | i <- l]).
 Proof.
-
+move => nin.
+elim: l => /= [| a l IHl].
+- have: unifies (subst_comp (subst1 v t) s) (btVar v) t.
+  exact/unifies_subst/nin.
+  by move => ->.
+- rewrite -IHl [RHS]andbCA !andbA.
+  have: unifies (subst_comp (subst1 v t) s) a.1 a.2 =
+        unifies s (subst (subst1 v t) a.1) (subst (subst1 v t) a.2).
+  rewrite /subst_comp /unifies /=.
+  by admit.
+  by move => ->.
 Admitted.
+
+Check inE.
 
 Lemma unify_subst_sound h v t l :
   (forall l,
@@ -504,8 +520,13 @@ have: forall x : unit * substType,
       (fun x => Ret tt : N unit) x
 by move => x; rewrite bindretf.
 move => /boolp.funext -> /boolp.funext ->.
-
-Admitted.
+have: forall x : unit * substType,
+      assert (fun=> unifies (subst_comp (subst1 v t) x.2) (btVar v) t &&
+                        unifies_pairs (subst_comp (subst1 v t) x.2) l) tt=
+      @assert N unit (fun=> unifies_pairs x.2 ([seq subst_pair (subst1 v t) i | i <- l])) tt.
+move => x; rewrite unifies_pairs_subst => //=.
+by move => /boolp.funext ->.
+Qed.
 
 Lemma unify2_sound h l :
   runActionT (unify2 h l) >>= (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
@@ -559,14 +580,6 @@ destruct t1, t2; try by exact/unify_fail.
   move => /boolp.funext ->.
   exact: IH'.
 Qed.
-
-(*
-
-((subst x.2 t1_1) == (subst x.2 t2_1)) &&
-          ((subst x.2 t1_2) == (subst x.2 t2_2)) &&
-          unifies_pairs x.2 l
-
-*)
 
 Theorem soundness t1 t2:
   unify t1 t2 >>= (fun x => assert (fun _ => unifies x.2 t1 t2) tt) =
