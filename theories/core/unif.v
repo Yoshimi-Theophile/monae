@@ -335,7 +335,17 @@ Proof.
   case: ifP => Hv; by rewrite IH //= Hv.
 Qed.
 
-Lemma eq_node t1_1 t1_2 t2_1 t2_2 :
+Lemma uniq_vars_pairs l : uniq (vars_pairs l).
+Proof. elim: l => //= -[t1 t2] l IH. exact: uniq_union. Qed.
+
+Lemma size_union2 l1 l2 : size (union l1 l2) >= size l2.
+Proof.
+  elim: l1 l2 => //= v l1 IH l2.
+  case: ifP => Hv //.
+  refine (leq_trans _ (IH _)); exact: ltnW.
+Qed.
+
+Lemma eq_btNode t1_1 t1_2 t2_1 t2_2 :
   btNode t1_1 t1_2 = btNode t2_1 t2_2 <->
   (t1_1 = t2_1) /\ (t1_2 = t2_2).
 Proof.
@@ -344,7 +354,7 @@ by injection h => ? ->.
 by injection h => -> ?.
 Qed.
 
-Lemma eqb_node t1_1 t1_2 t2_1 t2_2 :
+Lemma eqb_btNode t1_1 t1_2 t2_1 t2_2 :
   btNode t1_1 t1_2 == btNode t2_1 t2_2 =
   (t1_1 == t2_1) && (t1_2 == t2_2).
 Proof.
@@ -354,7 +364,7 @@ case_eq ((t1_1 == t2_1) && (t1_2 == t2_2)) => [/andP | ].
 - have: ~~((t1_1 == t2_1) && (t1_2 == t2_2)) ->
         ~~(btNode t1_1 t1_2 == btNode t2_1 t2_2).
   apply: contraNneq => h.
-  apply eq_node in h; destruct h; generalize H H0.
+  apply eq_btNode in h; destruct h; generalize H H0.
   by move => -> ->; rewrite !eq_refl.
   move => h h1.
   apply: eqP.
@@ -365,7 +375,10 @@ case_eq ((t1_1 == t2_1) && (t1_2 == t2_2)) => [/andP | ].
   exact/h1.
 Qed.
 
-Lemma subst_node s t1 t2:
+Lemma subst_btInt s b : subst s (btInt b) = btInt b.
+Proof. by rewrite /subst //=. Qed.
+
+Lemma subst_btNode s t1 t2:
   subst s (btNode t1 t2) = btNode (subst s t1) (subst s t2).
 Proof. by rewrite /subst. Qed.
 
@@ -402,6 +415,60 @@ Proof.
   elim: h => [hl hr].
   apply /andP; split => //.
   exact/unifies_swap.
+Qed.
+
+Definition unifiesP (sm : substType) t1 t2 := subst sm t1 = subst sm t2.
+Definition unifiesP_pairs (sm : substType) (l : constr_list) :=
+  forall t1 t2, (t1,t2) \in l -> unifiesP sm t1 t2.
+
+Lemma unifP sm t1 t2 : unifiesP sm t1 t2 <-> unifies sm t1 t2.
+Proof.
+split => h.
+- rewrite /unifies h //.
+- exact: eqP.
+Qed.
+
+Lemma unifP_split sm t1 t2 l :
+  unifiesP_pairs sm ((t1, t2) :: l) ->
+  unifiesP sm t1 t2 /\ unifiesP_pairs sm l.
+Proof.
+intro; split.
+- exact/H/mem_head.
+- rewrite /unifiesP_pairs => tt1 tt2.
+  intros; apply H.
+  rewrite in_cons.
+  apply /orP; by right.
+Qed.
+
+Lemma unifP_merge sm t1 t2 l :
+  unifiesP sm t1 t2 /\ unifiesP_pairs sm l ->
+  unifiesP_pairs sm ((t1, t2) :: l).
+Proof.
+intro h_; case h_ => hl hr.
+rewrite /unifiesP_pairs => tt1 tt2 H.
+rewrite in_cons in H; generalize H.
+move => /orP [/eqP h|h].
+- apply pair_equal_spec in h.
+  by case h => -> ->.
+- exact/hr/h.
+Qed.
+
+Lemma unifP_pairs sm l : unifiesP_pairs sm l <-> unifies_pairs sm l.
+Proof.
+split => h; induction l => //=;
+case_eq a => t1 t2 eq /=;
+rewrite eq in h.
+- apply /andP.
+  have: unifiesP sm t1 t2 /\ unifiesP_pairs sm l
+    by exact/unifP_split/h.
+  move => [h1 h2]; split.
+  + exact/unifP/h1.
+  + exact/IHl/h2.
+- apply unifP_merge.
+  generalize h.
+  move => /andP [h1 h2]; split.
+  + exact/unifP/h1.
+  + exact/IHl/h2.
 Qed.
 
 End Lemmas.
@@ -565,7 +632,7 @@ destruct t1, t2; try by exact/unify_fail.
         (fun x => @assert N unit
           (fun => (unifies x.2 (btNode t1_1 t1_2) (btNode t2_1 t2_2)) && unifies_pairs x.2 l) tt) x = 
         (fun x => @assert N unit (fun => unifies_pairs x.2 [:: (t1_1, t2_1), (t1_2, t2_2) & l]) tt) x.
-  move => x; rewrite /unifies !subst_node eqb_node /unify.
+  move => x; rewrite /unifies !subst_btNode eqb_btNode /unify.
   change (unifies_pairs x.2 [:: (t1_1, t2_1), (t1_2, t2_2) & l])
     with (unifies x.2 t1_1 t2_1 && unifies_pairs x.2 [:: (t1_2, t2_2) & l]).
   change (unifies_pairs x.2 [:: (t1_2, t2_2) & l])
@@ -593,6 +660,286 @@ Qed.
 End Soundness.
 
 Section Completeness.
+
+(* ??? *)
+Lemma not_unifies_occur v t s :
+  btVar v != t -> v \in vars t -> ~unifies s (btVar v) t.
+Proof.
+rewrite /unifies.
+move=> vt Ht /eqP Hun.
+have Hs: size_tree (subst s (btVar v)) >= size_tree (subst s t) by rewrite Hun.
+elim: t {Hun} vt Ht Hs => //= [v' | t1 IH1 t2 IH2] vt.
+- rewrite inE => /eqP Hv.
+  by rewrite Hv eq_refl in vt.
+- rewrite in_union_or.
+  move: IH1 IH2.
+  wlog : t1 t2 / (v \in vars t1).
+    move=> IH IH1 IH2 /orP[] Hv Hs.
+    - by apply: (IH t1 t2) => //; rewrite Hv.
+    - by apply: (IH t2 t1) => //; rewrite (Hv,addnAC).
+  move=> Hv IH1 _ _.
+  case vt1: (btVar v == t1) IH1 => IH1.
+    by rewrite -(eqP vt1) -addnA add1n ltnNge leq_addr.
+  move/(_ isT Hv) in IH1.
+  move=> Hsz; apply IH1.
+  apply/leq_trans/Hsz.
+  by rewrite addnAC leq_addl.
+Qed.
+
+Lemma unifies_extend s v t t' :
+  unifies s (btVar v) t -> unifies s (subst (subst1 v t) t') t'.
+Proof.
+  rewrite /unifies.
+  elim: t' => //= [v' | t1 IH1 t2 IH2].
+  - rewrite /subst1 => /eqP Heq.
+    case: ifP => // /eqP ->.
+    by rewrite Heq.
+  - move => Heq.
+    have: subst s (subst (subst1 v t) t1) == subst s t1 by exact/IH1/Heq.
+    have: subst s (subst (subst1 v t) t2) == subst s t2 by exact/IH2/Heq.
+    move => /eqP -> /eqP -> //.
+Qed.
+
+Lemma unifies_pairs_extend s v t l :
+  unifies_pairs s ((btVar v, t) :: l) ->
+  unifies_pairs s (map (subst_pair (subst1 v t)) l).
+Proof.
+  move => /= /andP [h1 h2].
+  apply /unifP_pairs.
+  move => t1 t2 /mapP /= [] [t3 t4] Hl [-> ->].
+  have Hv : unifies s (btVar v) t by apply h1.
+  apply unifP.
+  have: unifies s (subst (subst1 v t) t3) t3 by apply:unifies_extend.
+  have: unifies s (subst (subst1 v t) t4) t4 by apply:unifies_extend.
+  rewrite /unifies => /eqP -> /eqP ->.
+  apply unifP_pairs in h2.
+  exact /eqP/h2/Hl.
+Qed.
+
+Lemma unifies_pairs_btNode s tl1 tl2 tr1 tr2 l :
+  unifies s (btNode tl1 tl2) (btNode tr1 tr2) ->
+  unifies_pairs s l ->
+  unifies_pairs s ((tl1,tr1)::(tl2,tr2)::l).
+Proof.
+  rewrite /unifies !subst_btNode => /eqP /eq_btNode -[H1 H2] Hs.
+  apply unifP_pairs => t3 t4.
+  rewrite !inE.
+  case/orP => [/eqP[-> ->] // |].
+  case/orP => [/eqP[-> ->] // |].
+  by apply unifP_pairs.
+Qed.
+
+Definition moregen s s' :=
+  exists s2, forall t, subst s' t = subst s2 (subst s t).
+
+(* 一般性を保ちながら拡張 *)
+Lemma moregen_extend s v t s1 :
+  unifies s (btVar v) t ->
+  moregen s1 s ->
+  moregen (subst_comp (subst1 v t) s1) s.
+Proof.
+  move=> Hs [s2 Hs2].
+  exists s2 => t' /=.
+  rewrite /subst_comp subst_through -Hs2.
+  exact/esym/eqP/unifies_extend.
+Qed.
+
+Lemma subst_del x t t' : x \notin vars t -> x \notin vars (subst (subst1 x t) t').
+Proof.
+  move=> Hv.
+  elim: t' => //= [v | t1 IH1 t2 IH2].
+  - rewrite /subst1. case: ifP => //=.
+    by rewrite inE eq_sym => ->.
+  - by rewrite in_union_or negb_or IH1 IH2.
+Qed.
+
+Lemma subst_pairs_del x t l :
+  x \notin vars t -> x \notin (vars_pairs (map (subst_pair (subst1 x t)) l)).
+Proof.
+  move=> Hv.
+  elim: l => //= -[t1 t2] l IH.
+  by rewrite !in_union_or !negb_or /= IH !subst_del.
+Qed.
+
+Lemma subst_sub x t t' : {subset vars (subst (subst1 x t) t') <= union (vars t) (vars t')}.
+Proof.
+  rewrite /subst1.
+  elim: t' => //= [v | t1 IH1 t2 IH2] y.
+  - rewrite in_union_or.
+    case: ifP => [/eqP -> | _] -> //=.
+    by rewrite orbT.
+  - rewrite !in_union_or => /orP[/IH1 | /IH2];
+    rewrite in_union_or => /orP[] -> //;
+    by rewrite !orbT.
+Qed.
+
+Lemma subst_pairs_sub x t l :
+  {subset vars_pairs (map (subst_pair (subst1 x t)) l) <= union (vars t) (vars_pairs l)}.
+Proof.
+  elim: l => //= -[t1 t2] l IH /= y.
+  rewrite !in_union_or => /orP[/orP[] /subst_sub| /IH];
+  rewrite in_union_or => /orP[] -> //;
+  by rewrite !orbT.
+Qed.
+
+Lemma vars_pairs_decrease x t l :
+  x \notin (vars t) ->
+  size (vars_pairs (map (subst_pair (subst1 x t)) l))
+    < size (vars_pairs ((btVar x, t) :: l)).
+Proof.
+  move=> Hx.
+  apply (@leq_trans (size (x :: vars_pairs (map (subst_pair (subst1 x t)) l)))) => //.
+  apply uniq_leq_size.
+    by rewrite /= uniq_vars_pairs subst_pairs_del.
+  move=> /= y.
+  rewrite (negbTE Hx) inE => /orP[/eqP ->|].
+    by rewrite in_union_or inE eqxx.
+  move/subst_pairs_sub.
+  rewrite !in_union_or !inE => /orP[] ->; by rewrite orbT.
+Qed.
+
+Lemma size_vars_pairs_swap t1 t2 l :
+  size (vars_pairs ((t1,t2) :: l)) = size (vars_pairs ((t2,t1) :: l)).
+Proof.
+  apply/eqP; rewrite eqn_leq /=.
+  apply/andP; split; apply uniq_leq_size;
+  rewrite ?(uniq_union, uniq_vars_pairs) //= => y;
+  rewrite !in_union_or => /orP[/orP[]|] -> //;
+  by rewrite orbT.
+Qed.
+
+Lemma size_vars_pairs_btNode t1 t2 t'1 t'2 l :
+  size (vars_pairs ((btNode t1 t2, btNode t'1 t'2) :: l)) =
+  size (vars_pairs ((t1, t'1) :: (t2, t'2) :: l)).
+Proof.
+  apply/eqP; rewrite eqn_leq /=.
+  apply/andP; split; apply uniq_leq_size;
+  rewrite ?(uniq_union, uniq_vars_pairs) //= => y;
+  rewrite !in_union_or; do !case/orP; move ->;
+  by rewrite ?orbT.
+Qed.
+
+(*
+Theorem unify_complete s t1 t2 :
+  unifies s t1 t2 ->
+  exists s1,
+  unify t1 t2 >>= (fun x => assert (fun _ => moregen s1 s) tt) =
+  unify t1 t2 >> Ret tt.
+
+
+Theorem unify_complete s t1 t2 :
+  unifies s t1 t2 ->
+  exists s1,
+  unify t1 t2 = Some s1 /\ moregen s1 s.
+
+
+Theorem soundness t1 t2:
+  unify t1 t2 >>= (fun x => assert (fun _ => unifies x.2 t1 t2) tt) =
+  unify t1 t2 >> Ret tt.
+*)
+(*
+Lemma unify_subs_complete s h v t l :
+  (forall l,
+    h > size (vars_pairs l) -> unifies_pairs s l ->
+    exists s1, unify2 h l = Some s1 /\ moregen s1 s) ->
+  h.+1 > size (vars_pairs ((Var v, t) :: l)) ->
+  unifies_pairs s ((Var v, t) :: l) ->
+  Var v != t ->
+  exists s1, unify_subs  (unify2 h) v t l = Some s1 /\ moregen s1 s.
+Proof.
+  move=> IHh Hh Hs Hv.
+  rewrite /unify_subs.
+  case: ifPn => vt.
+    elim: (not_unifies_occur v t s) => //.
+    exact: Hs.
+  case: (IHh (map (subs_pair v t) l)) => //.
+      have Hhv := vars_pairs_decrease v t l vt.
+      apply (leq_trans Hhv).
+      by rewrite -ltnS.
+    exact: unifies_pairs_extend.
+  move=> s1 [Hun Hmg].
+  rewrite Hun /=.
+  exists ((v,t) :: s1); split => //.
+  apply moregen_extend => //. exact: Hs.
+Qed.
+
+(* 完全性 *)
+Theorem unify2_complete s h l :
+  h > size (vars_pairs l) ->
+  unifies_pairs s l ->
+  exists s1, unify2 h l = Some s1 /\ moregen s1 s.
+Proof.
+  elim: h l => //= h IH l Hh.
+  move Hh': (size_pairs l + 1) => h'.
+  have {Hh'} : h' > size_pairs l.
+    by rewrite -Hh' addn1 ltnS.
+  elim: h' l Hh => //= h' IH' [] //=.
+    move=>*; exists nil; split => //; by exists s.
+  case=> t1 t2 l Hh Hh' Hs.
+  destruct t1, t2 => /=.
+  (* VarVar *)
+- case: ifP => vv0.
+    move/eqP in vv0; subst v0.
+    apply IH'.
+    + apply/leq_trans: Hh.
+      rewrite ltnS.
+      exact: size_union2.
+    + rewrite /size_pairs /= -!addnA !add1n ltnS in Hh'.
+      exact: ltnW.
+    + move=> t1 t2 Hl; apply Hs; by auto.
+  have Hvar : Var v != Var v0.
+    apply/negP => /eqP[] /eqP.
+    by rewrite vv0.
+  exact: unify_subs_complete. 
+  (* VarSym *)
+- exact: unify_subs_complete.
+  (* VarFork *)
+- exact: unify_subs_complete.
+  (* SymVar *)
+- apply unify_subs_complete => //.
+  exact: unifies_pairs_swap.
+  (* SymSym *)
+- destruct symbol_dec.
+    subst.
+    apply IH' => //.
+      rewrite /size_pairs /= -!addnA !add1n ltnS in Hh'.
+      exact: ltnW.
+    move=> t1 t2 Hl.
+    apply Hs; by auto.
+  have : unifies s (Sym s0) (Sym s1) by apply Hs.
+  by rewrite /unifies !subs_list_Sym => -[].
+  (* SymFork *)
+  have : unifies s (Sym s0) (Fork t2_1 t2_2) by apply Hs.
+  by rewrite /unifies subs_list_Sym subs_list_Fork.
+  (* ForkVar *)
+  apply unify_subs_complete => //.
+    by rewrite size_vars_pairs_swap.
+  exact: unifies_pairs_swap.
+  (* ForkSym *)
+  have : unifies s (Fork t1_1 t1_2) (Sym s0) by apply Hs.
+  by rewrite /unifies subs_list_Sym subs_list_Fork.
+  (* ForkFork *)
+  apply IH'.
+      by rewrite -size_vars_pairs_Fork.
+    rewrite /size_pairs /= in Hh' *.
+    rewrite !add1n !(addnS,addSn) in Hh'.
+    rewrite !addnA in Hh' *.
+    rewrite (addnAC (size_tree t1_1)) in Hh'.
+    exact: ltnW.
+  apply unifies_pairs_Fork. exact: Hs.
+  move=> t t' Hl. apply Hs; by auto.
+Qed.
+
+(* 短い完全性定理 *)
+Corollary unify_complete s t1 t2 :
+  unifies s t1 t2 ->
+  exists s1, unify t1 t2 = Some s1 /\ moregen s1 s.
+Proof.
+  rewrite /unify addnC => Hs.
+  apply unify2_complete => // x y.
+  by rewrite inE => /eqP[-> ->].
+Qed.
+*)
 
 End Completeness.
 
