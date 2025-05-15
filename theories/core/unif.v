@@ -348,31 +348,15 @@ Qed.
 Lemma eq_btNode t1_1 t1_2 t2_1 t2_2 :
   btNode t1_1 t1_2 = btNode t2_1 t2_2 <->
   (t1_1 = t2_1) /\ (t1_2 = t2_2).
-Proof.
-split => [h | [-> -> //]]; split.
-by injection h => ? ->.
-by injection h => -> ?.
-Qed.
+Proof. by split; case => // -> ->. Qed.
 
 Lemma eqb_btNode t1_1 t1_2 t2_1 t2_2 :
   btNode t1_1 t1_2 == btNode t2_1 t2_2 =
   (t1_1 == t2_1) && (t1_2 == t2_2).
 Proof.
-case_eq ((t1_1 == t2_1) && (t1_2 == t2_2)) => [/andP | ].
-- move => [/eqP -> /eqP ->].
-  exact/eqP.
-- have: ~~((t1_1 == t2_1) && (t1_2 == t2_2)) ->
-        ~~(btNode t1_1 t1_2 == btNode t2_1 t2_2).
-  apply: contraNneq => h.
-  apply eq_btNode in h; destruct h; generalize H H0.
-  by move => -> ->; rewrite !eq_refl.
-  move => h h1.
-  apply: eqP.
-  rewrite eqbF_neg.
-  apply: h.
-  rewrite -eqbF_neg.
-  apply /eqP.
-  exact/h1.
+case: andP.
+- by case => /eqP -> /eqP ->; apply: eqxx.
+- by apply: contra_notF => /eqP [] -> ->; rewrite !eqxx.
 Qed.
 
 Lemma subst_btInt s b : subst s (btInt b) = btInt b.
@@ -421,11 +405,11 @@ Definition unifiesP (sm : substType) t1 t2 := subst sm t1 = subst sm t2.
 Definition unifiesP_pairs (sm : substType) (l : constr_list) :=
   forall t1 t2, (t1,t2) \in l -> unifiesP sm t1 t2.
 
-Lemma unifP sm t1 t2 : unifiesP sm t1 t2 <-> unifies sm t1 t2.
+Lemma unifP_pairs sm l : reflect (unifiesP_pairs sm l) (unifies_pairs sm l).
 Proof.
-split => h.
-- rewrite /unifies h //.
-- exact: eqP.
+apply/(iffP allP) => /= H.
+- by move=> t1 t2 Ht; apply/eqP/(H (t1,t2)).
+- by case=> t1 t2 Ht; apply/eqP/(H t1 t2).
 Qed.
 
 Lemma unifP_split sm t1 t2 l :
@@ -451,24 +435,6 @@ move => /orP [/eqP h|h].
 - apply pair_equal_spec in h.
   by case h => -> ->.
 - exact/hr/h.
-Qed.
-
-Lemma unifP_pairs sm l : unifiesP_pairs sm l <-> unifies_pairs sm l.
-Proof.
-split => h; induction l => //=;
-case_eq a => t1 t2 eq /=;
-rewrite eq in h.
-- apply /andP.
-  have: unifiesP sm t1 t2 /\ unifiesP_pairs sm l
-    by exact/unifP_split/h.
-  move => [h1 h2]; split.
-  + exact/unifP/h1.
-  + exact/IHl/h2.
-- apply unifP_merge.
-  generalize h.
-  move => /andP [h1 h2]; split.
-  + exact/unifP/h1.
-  + exact/IHl/h2.
 Qed.
 
 End Lemmas.
@@ -708,11 +674,11 @@ Proof.
   apply /unifP_pairs.
   move => t1 t2 /mapP /= [] [t3 t4] Hl [-> ->].
   have Hv : unifies s (btVar v) t by apply h1.
-  apply unifP.
+  apply/eqP.
   have: unifies s (subst (subst1 v t) t3) t3 by apply:unifies_extend.
   have: unifies s (subst (subst1 v t) t4) t4 by apply:unifies_extend.
   rewrite /unifies => /eqP -> /eqP ->.
-  apply unifP_pairs in h2.
+  move/unifP_pairs in h2.
   exact /eqP/h2/Hl.
 Qed.
 
@@ -722,11 +688,11 @@ Lemma unifies_pairs_btNode s tl1 tl2 tr1 tr2 l :
   unifies_pairs s ((tl1,tr1)::(tl2,tr2)::l).
 Proof.
   rewrite /unifies !subst_btNode => /eqP /eq_btNode -[H1 H2] Hs.
-  apply unifP_pairs => t3 t4.
+  apply/unifP_pairs => t3 t4.
   rewrite !inE.
   case/orP => [/eqP[-> ->] // |].
   case/orP => [/eqP[-> ->] // |].
-  by apply unifP_pairs.
+  by apply/unifP_pairs.
 Qed.
 
 Definition moregen s s' :=
@@ -858,9 +824,9 @@ Corollary unify_complete s t1 t2 :
     (fun '(_, s1') => Ret s1') = Ret s1 /\
   moregen s1 s.
 Proof.
-rewrite /unify addnC => /unifP Hs.
+rewrite /unify addnC => /eqP Hs.
 apply unify2_complete => //.
-apply unifP_pairs => ? ?.
+apply/unifP_pairs => ? ?.
 by rewrite inE => /eqP[-> ->].
 Qed.
 
