@@ -589,7 +589,7 @@ move => x; rewrite unifies_pairs_subst => //=.
 by move => /boolp.funext ->.
 Qed.
 
-Lemma unify2_sound h l :
+Theorem unify2_sound h l :
   runActionT (unify2 h l) >>= (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
   runActionT (unify2 h l) >> Ret tt.
 Proof.
@@ -642,7 +642,7 @@ destruct t1, t2; try by exact/unify_fail.
   exact: IH'.
 Qed.
 
-Theorem soundness t1 t2:
+Corollary soundness t1 t2:
   unify t1 t2 >>= (fun x => assert (fun _ => unifies x.2 t1 t2) tt) =
   unify t1 t2 >> Ret tt.
 Proof.
@@ -744,7 +744,9 @@ Proof.
   exact/esym/eqP/unifies_extend.
 Qed.
 
-Lemma subst_del x t t' : x \notin vars t -> x \notin vars (subst (subst1 x t) t').
+Lemma subst_del x t t' :
+  x \notin vars t ->
+  x \notin vars (subst (subst1 x t) t').
 Proof.
   move=> Hv.
   elim: t' => //= [v | t1 IH1 t2 IH2].
@@ -754,14 +756,17 @@ Proof.
 Qed.
 
 Lemma subst_pairs_del x t l :
-  x \notin vars t -> x \notin (vars_pairs (map (subst_pair (subst1 x t)) l)).
+  x \notin vars t ->
+  x \notin (vars_pairs (map (subst_pair (subst1 x t)) l)).
 Proof.
   move=> Hv.
   elim: l => //= -[t1 t2] l IH.
   by rewrite !in_union_or !negb_or /= IH !subst_del.
 Qed.
 
-Lemma subst_sub x t t' : {subset vars (subst (subst1 x t) t') <= union (vars t) (vars t')}.
+Lemma subst_sub x t t' :
+  {subset vars (subst (subst1 x t) t') <=
+  union (vars t) (vars t')}.
 Proof.
   rewrite /subst1.
   elim: t' => //= [v | t1 IH1 t2 IH2] y.
@@ -774,7 +779,8 @@ Proof.
 Qed.
 
 Lemma subst_pairs_sub x t l :
-  {subset vars_pairs (map (subst_pair (subst1 x t)) l) <= union (vars t) (vars_pairs l)}.
+  {subset vars_pairs (map (subst_pair (subst1 x t)) l) <=
+  union (vars t) (vars_pairs l)}.
 Proof.
   elim: l => //= -[t1 t2] l IH /= y.
   rewrite !in_union_or => /orP[/orP[] /subst_sub| /IH];
@@ -784,8 +790,8 @@ Qed.
 
 Lemma vars_pairs_decrease x t l :
   x \notin (vars t) ->
-  size (vars_pairs (map (subst_pair (subst1 x t)) l))
-    < size (vars_pairs ((btVar x, t) :: l)).
+  size (vars_pairs (map (subst_pair (subst1 x t)) l)) <
+  size (vars_pairs ((btVar x, t) :: l)).
 Proof.
   move=> Hx.
   apply (@leq_trans (size (x :: vars_pairs (map (subst_pair (subst1 x t)) l)))) => //.
@@ -799,7 +805,8 @@ Proof.
 Qed.
 
 Lemma size_vars_pairs_swap t1 t2 l :
-  size (vars_pairs ((t1,t2) :: l)) = size (vars_pairs ((t2,t1) :: l)).
+  size (vars_pairs ((t1,t2) :: l)) =
+  size (vars_pairs ((t2,t1) :: l)).
 Proof.
   apply/eqP; rewrite eqn_leq /=.
   apply/andP; split; apply uniq_leq_size;
@@ -819,7 +826,7 @@ Proof.
   by rewrite ?orbT.
 Qed.
 
-Lemma unify_subs_complete s h v t l :
+Lemma unify_subst_complete s h v t l :
   (forall l,
     h > size (vars_pairs l) -> unifies_pairs s l ->
     exists s1,
@@ -844,13 +851,18 @@ Theorem unify2_complete s h l :
   moregen s1 s.
 Admitted.
 
-Theorem unify_complete s t1 t2 :
+Corollary unify_complete s t1 t2 :
   unifies s t1 t2 ->
   exists s1,
   unify t1 t2 >>=
     (fun '(_, s1') => Ret s1') = Ret s1 /\
   moregen s1 s.
-Admitted.
+Proof.
+rewrite /unify addnC => /unifP Hs.
+apply unify2_complete => //.
+apply unifP_pairs => ? ?.
+by rewrite inE => /eqP[-> ->].
+Qed.
 
 (*
 Lemma unify_subs_complete s h v t l :
@@ -943,16 +955,6 @@ Proof.
     exact: ltnW.
   apply unifies_pairs_Fork. exact: Hs.
   move=> t t' Hl. apply Hs; by auto.
-Qed.
-
-(* 短い完全性定理 *)
-Corollary unify_complete s t1 t2 :
-  unifies s t1 t2 ->
-  exists s1, unify t1 t2 = Some s1 /\ moregen s1 s.
-Proof.
-  rewrite /unify addnC => Hs.
-  apply unify2_complete => // x y.
-  by rewrite inE => /eqP[-> ->].
 Qed.
 *)
 
