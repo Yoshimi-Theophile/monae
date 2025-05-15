@@ -819,24 +819,39 @@ Proof.
   by rewrite ?orbT.
 Qed.
 
-(*
+Lemma unify_subs_complete s h v t l :
+  (forall l,
+    h > size (vars_pairs l) -> unifies_pairs s l ->
+    exists s1,
+    runActionT (unify2 h l) >>=
+      (fun '(_, s1') => Ret s1') = Ret s1 /\
+    moregen s1 s) ->
+  h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
+  unifies_pairs s ((btVar v, t) :: l) ->
+  btVar v != t ->
+  exists s1,
+  runActionT (unify_subst (unify2 h) v t l) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+
+Theorem unify2_complete s h l :
+  h > size (vars_pairs l) ->
+  unifies_pairs s l ->
+  exists s1,
+  runActionT (unify2 h l) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+
 Theorem unify_complete s t1 t2 :
   unifies s t1 t2 ->
   exists s1,
-  unify t1 t2 >>= (fun x => assert (fun _ => moregen s1 s) tt) =
-  unify t1 t2 >> Ret tt.
+  unify t1 t2 >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
 
-
-Theorem unify_complete s t1 t2 :
-  unifies s t1 t2 ->
-  exists s1,
-  unify t1 t2 = Some s1 /\ moregen s1 s.
-
-
-Theorem soundness t1 t2:
-  unify t1 t2 >>= (fun x => assert (fun _ => unifies x.2 t1 t2) tt) =
-  unify t1 t2 >> Ret tt.
-*)
 (*
 Lemma unify_subs_complete s h v t l :
   (forall l,
