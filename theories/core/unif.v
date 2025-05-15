@@ -373,10 +373,8 @@ Proof.
   - by rewrite /subst1 in_union_or negb_or => /andP[] /IH1 -> /IH2 ->.
 Qed.
 
-Lemma subst_through s v t t':
-  subst (fun v0 : var => subst s (subst1 v t' v0)) t =
-  subst s (subst (subst1 v t') t).
-Proof. elim: t => //= ? -> ? -> //. Qed.
+Lemma substD : {morph subst: s1 s2 / subst_comp s1 s2 >-> s2 \o s1}.
+Proof. by move=> s1 s2; apply: boolp.funext; elim => //= t1 -> t2 ->. Qed.
 
 Lemma unifies_same sm t : unifies sm t t.
 Proof. by rewrite /unifies. Qed.
@@ -493,19 +491,11 @@ Proof. by rewrite runActionTfail !bindfailf. Qed.
 Hint Resolve unify_fail : core.
 
 Lemma unifies_subst s v t :
-  (v \in vars t) = false -> 
-  unifies (subst_comp (subst1 v t) s) (btVar v) t.
-Proof.
-move => /eqP Hnin /=; rewrite /unifies /subst_comp /=.
-change (subst1 v t v) with (if v == v then t else btVar v).
-have: v == v by exact/eq_refl.
-move => ->.
-rewrite eqbF_neg in Hnin.
-rewrite subst_through // subst_same //.
-Qed.
+  v \notin vars t -> unifies (subst_comp (subst1 v t) s) (btVar v) t.
+Proof. by move=> ?; rewrite /unifies substD /= subst_same // /subst1 eqxx. Qed.
 
 Lemma unifies_pairs_subst s v t l :
-  (v \in vars t) = false ->
+  v \notin vars t ->
   unifies (subst_comp (subst1 v t) s) (btVar v) t &&
   unifies_pairs (subst_comp (subst1 v t) s) l =
   unifies_pairs s ([seq subst_pair (subst1 v t) i | i <- l]).
@@ -519,54 +509,43 @@ elim: l => /= [| a l IHl].
   have: unifies (subst_comp (subst1 v t) s) a.1 a.2 =
         unifies s (subst (subst1 v t) a.1) (subst (subst1 v t) a.2).
   rewrite /subst_comp /unifies /=.
-  rewrite !subst_through => //.
+  rewrite !substD => //.
   by move => ->.
 Qed.
 
 Lemma unify_subst_sound h v t l :
   (forall l,
     runActionT (unify2 h l) >>=
-    (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
-    runActionT (unify2 h l) >> Ret tt
+    assert (fun x => unifies_pairs x.2 l) =
+    runActionT (unify2 h l)
   ) ->
   runActionT (unify_subst (unify2 h) v t l) >>= 
-    (fun x => assert (fun _ => unifies_pairs x.2 ((btVar v, t) :: l)) tt) =
-  runActionT (unify_subst (unify2 h) v t l) >> Ret tt.
+    assert (fun x => unifies_pairs x.2 ((btVar v, t) :: l)) =
+  runActionT (unify_subst (unify2 h) v t l).
 Proof.
 rewrite /unify_subst.
-case Hocc: (v \in _) => // IH.
-rewrite runActionTbind runActionTwrite !bindretf !bindA /=.
-have: forall x : unit * substType,
-      (fun x => Ret (x.1, subst_comp (subst1 v t) x.2) >>=
-        (fun x0 => assert (fun=> unifies x0.2 (btVar v) t && unifies_pairs x0.2 l) tt)) x =
-      (fun x => @assert N unit (fun=> unifies (subst_comp (subst1 v t) x.2) (btVar v) t &&
-        unifies_pairs (subst_comp (subst1 v t) x.2) l) tt) x
-by move => x; rewrite bindretf /=.
-have: forall x : unit * substType,
-      (fun x => Ret (x.1, subst_comp (subst1 v t) x.2) >> Ret tt) x =
-      (fun x => Ret tt : N unit) x
-by move => x; rewrite bindretf.
-move => /boolp.funext -> /boolp.funext ->.
-have: forall x : unit * substType,
-      assert (fun=> unifies (subst_comp (subst1 v t) x.2) (btVar v) t &&
-                        unifies_pairs (subst_comp (subst1 v t) x.2) l) tt=
-      @assert N unit (fun=> unifies_pairs x.2 ([seq subst_pair (subst1 v t) i | i <- l])) tt.
-move => x; rewrite unifies_pairs_subst => //=.
-by move => /boolp.funext ->.
+case/boolP: (v \in _) => Hocc // IH.
+  by rewrite runActionTfail bindfailf.
+rewrite runActionTbind runActionTwrite !bindretf !bindA /= -[in RHS]IH.
+under eq_bind do rewrite bindretf /=.
+under eq_bind do rewrite assertE unifies_pairs_subst //.
+rewrite bindA.
+by under [in RHS]eq_bind do rewrite assertE bindA bindretf.
 Qed.
 
 Theorem unify2_sound h l :
-  runActionT (unify2 h l) >>= (fun x => assert (fun _ => unifies_pairs x.2 l) tt) =
-  runActionT (unify2 h l) >> Ret tt.
+  runActionT (unify2 h l) >>= assert (fun x => unifies_pairs x.2 l) =
+  runActionT (unify2 h l).
 Proof.
 elim: h l => /= [l | h IH l].
-- by exact/unify_fail.
+- by rewrite runActionTfail bindfailf.
 move: (size_pairs l + 1) => h'.
 elim: h' l => //= [l | h' IH' [| [t1 t2] l] /=].
-- by exact/unify_fail.
-- by rewrite assertE guardT bindskipf.
-destruct t1, t2; try by exact/unify_fail.
-- case: ifP; move=> /eqP eq.
+- by rewrite runActionTfail bindfailf.
+- under eq_bind do rewrite assertE guardT bindskipf.
+  by rewrite bindmret.
+destruct t1, t2; try by rewrite runActionTfail bindfailf.
+- case: ifPn; move=> /eqP eq.
   + rewrite eq -IH'.
     have: forall x : unit * substType,
           (fun x => assert (fun=> unifies x.2 (btVar v0) (btVar v0) && unifies_pairs x.2 l) tt) x = 
