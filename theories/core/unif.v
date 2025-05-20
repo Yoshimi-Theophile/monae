@@ -465,17 +465,9 @@ Lemma unifies_pairs_subst s v t l :
   unifies_pairs (subst_comp (subst1 v t) s) l =
   unifies_pairs s ([seq subst_pair (subst1 v t) i | i <- l]).
 Proof.
-move => nin.
-elim: l => /= [| a l IHl].
-- have: unifies (subst_comp (subst1 v t) s) (btVar v) t.
-  exact/unifies_subst/nin.
-  by move => ->.
-- rewrite -IHl [RHS]andbCA !andbA.
-  have: unifies (subst_comp (subst1 v t) s) a.1 a.2 =
-        unifies s (subst (subst1 v t) a.1) (subst (subst1 v t) a.2).
-  rewrite /subst_comp /unifies /=.
-  rewrite !substD => //.
-  by move => ->.
+move => nin; elim: l => /= [| a l IHl].
+- by rewrite unifies_subst.
+- by rewrite -IHl [RHS]andbCA !andbA /subst_comp /unifies /= !substD.
 Qed.
 
 Lemma unify_subst_sound h v t l :
@@ -623,7 +615,7 @@ Lemma moregen_extend s v t s1 :
 Proof.
   move=> Hs [s2 Hs2].
   exists s2 => t' /=.
-  rewrite /subst_comp subst_through -Hs2.
+  rewrite /subst_comp substD -Hs2.
   exact/esym/eqP/unifies_extend.
 Qed.
 
