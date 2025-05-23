@@ -366,6 +366,12 @@ Lemma subst_btNode s t1 t2:
   subst s (btNode t1 t2) = btNode (subst s t1) (subst s t2).
 Proof. by rewrite /subst. Qed.
 
+Lemma subst_zero t : subst subst0 t = t.
+Proof.
+elim: t => // bt1 IH1 bt2 IH2.
+by rewrite subst_btNode IH1 IH2.
+Qed.
+
 Lemma subst_same v t' t : v \notin (vars t) -> subst (subst1 v t') t = t.
 Proof.
   elim: t => //= [x | t1 IH1 t2 IH2].
@@ -409,7 +415,7 @@ End Lemmas.
 
 Section Unify.
 
-Variables (N : failMonad) (M : actionRunFailMonad op N).
+Variables (N : exceptMonad) (M : actionRunFailMonad op N).
 Let write := write M.
 
 Section Unify1.
@@ -525,8 +531,7 @@ Corollary soundness t1 t2:
   unify t1 t2 >>= assert (fun x => unifies x.2 t1 t2) = unify t1 t2.
 Proof.
 rewrite /unify /=.
-have: forall s t1 t2, unifies s t1 t2 =
-      unifies_pairs s [:: (t1, t2)]
+have: forall s t1 t2, unifies s t1 t2 = unifies_pairs s [:: (t1, t2)]
 by move => *; rewrite /= Bool.andb_true_r //.
 move => Huup.
 under eq_bind do rewrite assertE Huup.
@@ -705,6 +710,23 @@ Lemma unify_subst_complete s h v t l :
   (forall l,
     h > size (vars_pairs l) -> unifies_pairs s l ->
     exists s1,
+    catch (runActionT (unify2 h l)) (Ret (tt, subst0)) >>=
+      (fun '(_, s1') => Ret s1') = Ret s1 /\
+    moregen s1 s) ->
+  h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
+  unifies_pairs s ((btVar v, t) :: l) ->
+  btVar v != t ->
+  exists s1,
+  catch (runActionT (unify_subst (unify2 h) v t l)) (Ret (tt, subst0)) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+
+(*
+Lemma unify_subst_complete s h v t l :
+  (forall l,
+    h > size (vars_pairs l) -> unifies_pairs s l ->
+    exists s1,
     runActionT (unify2 h l) >>=
       (fun '(_, s1') => Ret s1') = Ret s1 /\
     moregen s1 s) ->
@@ -715,6 +737,78 @@ Lemma unify_subst_complete s h v t l :
   runActionT (unify_subst (unify2 h) v t l) >>=
     (fun '(_, s1') => Ret s1') = Ret s1 /\
   moregen s1 s.
+*)
+
+Theorem unify2_complete s h l :
+  h > size (vars_pairs l) ->
+  unifies_pairs s l ->
+  exists s1,
+  catch (runActionT (unify2 h l)) (Ret (tt, subst0)) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+
+(*
+Theorem unify2_complete s h l :
+  h > size (vars_pairs l) ->
+  unifies_pairs s l ->
+  exists s1,
+  runActionT (unify2 h l) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+*)
+
+Corollary unify_complete s t1 t2 :
+  unifies s t1 t2 ->
+  exists s1,
+  catch (unify t1 t2) (Ret (tt, subst0)) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+
+(*
+Corollary unify_complete s t1 t2 :
+  unifies s t1 t2 ->
+  exists s1,
+  unify t1 t2 >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Admitted.
+*)
+
+(*
+Lemma unify_subst_complete s h v t l :
+  (forall l,
+    h > size (vars_pairs l) -> unifies_pairs s l ->
+    exists s1,
+    runActionT (unify2 h l) >>=
+      (fun '(_, s1') => Ret s1') = Ret s1 /\
+    moregen s1 s) ->
+  h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
+  unifies_pairs s ((btVar v, t) :: l) ->
+  btVar v != t ->
+  exists s1,
+  runActionT (unify_subst (unify2 h) v t l) >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Proof.
+move=> IHh Hh Hs Hv.
+  rewrite /unify_subst.
+  case: ifPn => vt.
+    move: Hs => /= /andP [Hs1 ?].
+    elim: (@not_unifies_occur v t s) => //.
+  case: (IHh (map (subst_pair (subst1 v t)) l)) => //.
+      have Hhv := @vars_pairs_decrease v t l vt.
+      apply (leq_trans Hhv).
+      by rewrite -ltnS.
+    by apply: unifies_pairs_extend.
+  move=> s1 [Hun Hmg].
+  exists (subst_comp (subst1 v t) s1); split => //.
+  rewrite runActionTbind runActionTwrite.
+  admit.
+  apply moregen_extend => //.
+  by move: Hs => /andP [-> ?].
 Admitted.
 
 Theorem unify2_complete s h l :
@@ -724,59 +818,15 @@ Theorem unify2_complete s h l :
   runActionT (unify2 h l) >>=
     (fun '(_, s1') => Ret s1') = Ret s1 /\
   moregen s1 s.
-Admitted.
-
-Corollary unify_complete s t1 t2 :
-  unifies s t1 t2 ->
-  exists s1,
-  unify t1 t2 >>=
-    (fun '(_, s1') => Ret s1') = Ret s1 /\
-  moregen s1 s.
-Proof.
-rewrite /unify addnC => /eqP Hs.
-apply unify2_complete => //.
-apply/unifP_pairs => ? ?.
-by rewrite inE => /eqP[-> ->].
-Qed.
-
-(*
-Lemma unify_subs_complete s h v t l :
-  (forall l,
-    h > size (vars_pairs l) -> unifies_pairs s l ->
-    exists s1, unify2 h l = Some s1 /\ moregen s1 s) ->
-  h.+1 > size (vars_pairs ((Var v, t) :: l)) ->
-  unifies_pairs s ((Var v, t) :: l) ->
-  Var v != t ->
-  exists s1, unify_subs  (unify2 h) v t l = Some s1 /\ moregen s1 s.
-Proof.
-  move=> IHh Hh Hs Hv.
-  rewrite /unify_subs.
-  case: ifPn => vt.
-    elim: (not_unifies_occur v t s) => //.
-    exact: Hs.
-  case: (IHh (map (subs_pair v t) l)) => //.
-      have Hhv := vars_pairs_decrease v t l vt.
-      apply (leq_trans Hhv).
-      by rewrite -ltnS.
-    exact: unifies_pairs_extend.
-  move=> s1 [Hun Hmg].
-  rewrite Hun /=.
-  exists ((v,t) :: s1); split => //.
-  apply moregen_extend => //. exact: Hs.
-Qed.
-
-(* 完全性 *)
-Theorem unify2_complete s h l :
-  h > size (vars_pairs l) ->
-  unifies_pairs s l ->
-  exists s1, unify2 h l = Some s1 /\ moregen s1 s.
 Proof.
   elim: h l => //= h IH l Hh.
   move Hh': (size_pairs l + 1) => h'.
   have {Hh'} : h' > size_pairs l.
     by rewrite -Hh' addn1 ltnS.
   elim: h' l Hh => //= h' IH' [] //=.
-    move=>*; exists nil; split => //; by exists s.
+    move=>*; exists subst0; split => //.
+    by rewrite runActionTret bindretf.
+    exists s => t; by rewrite subst_zero.
   case=> t1 t2 l Hh Hh' Hs.
   destruct t1, t2 => /=.
   (* VarVar *)
@@ -788,27 +838,27 @@ Proof.
       exact: size_union2.
     + rewrite /size_pairs /= -!addnA !add1n ltnS in Hh'.
       exact: ltnW.
-    + move=> t1 t2 Hl; apply Hs; by auto.
-  have Hvar : Var v != Var v0.
+    + move: Hs => /andP [? Hs]; apply Hs; by auto.
+  have Hvar : btVar v != btVar v0.
     apply/negP => /eqP[] /eqP.
     by rewrite vv0.
-  exact: unify_subs_complete. 
+  exact: unify_subst_complete.
   (* VarSym *)
-- exact: unify_subs_complete.
+- exact: unify_subst_complete.
   (* VarFork *)
-- exact: unify_subs_complete.
+- exact: unify_subst_complete.
   (* SymVar *)
-- apply unify_subs_complete => //.
-  exact: unifies_pairs_swap.
+- apply unify_subst_complete => //.
+  by rewrite unifies_pairs_swap.
   (* SymSym *)
-- destruct symbol_dec.
-    subst.
+- move: Hs => /= /andP [Hs1 Hs2].
+  destruct (n == n0).
     apply IH' => //.
       rewrite /size_pairs /= -!addnA !add1n ltnS in Hh'.
       exact: ltnW.
-    move=> t1 t2 Hl.
-    apply Hs; by auto.
-  have : unifies s (Sym s0) (Sym s1) by apply Hs.
+  have : unifies s (btInt n) (btInt n0) by apply Hs1.
+  rewrite /unifies !subst_btInt.
+(*
   by rewrite /unifies !subs_list_Sym => -[].
   (* SymFork *)
   have : unifies s (Sym s0) (Fork t2_1 t2_2) by apply Hs.
@@ -830,6 +880,21 @@ Proof.
     exact: ltnW.
   apply unifies_pairs_Fork. exact: Hs.
   move=> t t' Hl. apply Hs; by auto.
+Qed.
+*)
+Admitted.
+
+Corollary unify_complete s t1 t2 :
+  unifies s t1 t2 ->
+  exists s1,
+  unify t1 t2 >>=
+    (fun '(_, s1') => Ret s1') = Ret s1 /\
+  moregen s1 s.
+Proof.
+rewrite /unify addnC => /eqP Hs.
+apply unify2_complete => //.
+apply/unifP_pairs => ? ?.
+by rewrite inE => /eqP[-> ->].
 Qed.
 *)
 
