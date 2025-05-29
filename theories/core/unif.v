@@ -700,6 +700,13 @@ Proof.
   by rewrite ?orbT.
 Qed.
 
+(*
+Lemma substD2 v t s t' :
+  subst (subst_comp (subst1 v t) s) t' =
+  subst s (subst (subst1 v t) t').
+Proof. by rewrite substD. Qed.
+*)
+
 Lemma unify_subst_complete s h v t l :
   (forall l,
     h > size (vars_pairs l) -> unifies_pairs s l ->
@@ -708,9 +715,9 @@ Lemma unify_subst_complete s h v t l :
     catch (
       runActionT (unify2 h l) >>=
       assert (fun x => subst x.2 t' == subst s1 t') >>=
-      fun x => Ret x.2
-    ) fail =
-    runActionT (unify2 h l) >>= fun x => Ret x.2)
+      fun x => Ret (Some x.2)
+    ) (Ret None) =
+    runActionT (unify2 h l) >>= fun x => Ret (Some x.2))
     /\ moregen s1 s) ->
   h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
   unifies_pairs s ((btVar v, t) :: l) ->
@@ -720,9 +727,9 @@ Lemma unify_subst_complete s h v t l :
   catch (
     runActionT (unify_subst (unify2 h) v t l) >>=
     assert (fun x => subst x.2 t' == subst s1 t') >>=
-    fun x => Ret x.2
-  ) fail =
-  runActionT (unify_subst (unify2 h) v t l) >>= fun x => Ret x.2)
+    fun x => Ret (Some x.2)
+  ) (Ret None) =
+  runActionT (unify_subst (unify2 h) v t l) >>= fun x => Ret (Some x.2))
   /\ moregen s1 s.
 Proof.
   move=> IHh Hh Hs Hv.
@@ -741,17 +748,28 @@ Proof.
   under [RHS]eq_bind do rewrite bindretf => /=.
   under eq_bind do rewrite bindretf.
   have ->: forall m,
-    m >>= (fun x => Ret (subst_comp (subst1 v t) x.2)) =
-    m >>= ((fun x => Ret (subst_comp (subst1 v t) x)) \o [eta snd]).
+    m >>= (fun x => Ret (Some (subst_comp (subst1 v t) x.2))) =
+    m >>= ((fun x =>
+            if x is Some x'
+            then Ret (Some (subst_comp (subst1 v t) x'))
+            else Ret None) \o
+           (fun x : unit * substType => Some x.2)).
   by move => *; rewrite -bind_fmap.
   have ->: forall m,
-    m >>= ((fun x => Ret (subst_comp (subst1 v t) x)) \o [eta snd]) =
-    m >>= (fun x : unit * substType => Ret x.2) >>= fun x => Ret (subst_comp (subst1 v t) x).
+    m >>= ((fun x =>
+            if x is Some x'
+            then Ret (Some (subst_comp (subst1 v t) x'))
+            else Ret None) \o
+           (fun x : unit * substType => Some x.2)) =
+    m >>= (fun x : unit * substType => Ret (Some x.2)) >>=
+    fun x => if x is Some x'
+            then Ret (Some (subst_comp (subst1 v t) x'))
+            else Ret None.
   move => M' m; rewrite bindA.
   by apply: eq_bind => x; rewrite bindretf.
-  rewrite -bindA -(Hun t') !bindA.
-  
-  rewrite substD.
+  rewrite -bindA -(Hun (subst (subst1 v t) t')) !bindA.
+
+  rewrite /assert /guard /=.
   
   admit.
   apply moregen_extend => //.
@@ -766,9 +784,9 @@ Theorem unify2_complete s h l :
   catch (
     runActionT (unify2 h l) >>=
     assert (fun x => subst x.2 t == subst s1 t) >>=
-    fun x => Ret x.2
-  ) fail =
-  runActionT (unify2 h l) >>= fun x => Ret x.2)
+    fun x => Ret (Some x.2)
+  ) (Ret None) =
+  runActionT (unify2 h l) >>= fun x => Ret (Some x.2))
   /\ moregen s1 s.
 Proof.
   elim: h l => //= h IH l Hh.
@@ -804,26 +822,23 @@ Proof.
   by rewrite unifies_pairs_swap.
   (* SymSym *)
 - move: Hs => /= /andP [Hs1 Hs2].
-  destruct (n == n0).
+  elim eq: (n == n0).
     apply IH' => //.
       rewrite /size_pairs /= -!addnA !add1n ltnS in Hh'.
       exact: ltnW.
-  have Hunn0: unifies s (btInt n) (btInt n0) by apply Hs1.
-  exists subst0; split => [?|].
-  by rewrite !runActionTfail !bindfailf catchfailm.
-  exists s => ?; by rewrite subst_zero.
+  have: unifies s (btInt n) (btInt n0) by apply Hs1.
+  rewrite /unifies !subst_btInt => /eqP -[].
+  by move: eq => /eqP.
   (* SymFork *)
-- exists subst0; split => [?|].
-  by rewrite runActionTfail !bindfailf catchfailm.
-  exists s => ?; by rewrite subst_zero.
+- have : unifies s (btInt n) (btNode t2_1 t2_2) by apply Hs.
+  by rewrite /unifies subst_btInt subst_btNode.
   (* ForkVar *)
 - apply unify_subst_complete => //.
     by rewrite size_vars_pairs_swap.
   by rewrite unifies_pairs_swap.
   (* ForkSym *)
-- exists subst0; split => [?|].
-  by rewrite runActionTfail !bindfailf catchfailm.
-  exists s => ?; by rewrite subst_zero.
+- have : unifies s (btNode t1_1 t1_2) (btInt n) by apply Hs.
+  by rewrite /unifies subst_btInt subst_btNode.
   (* ForkFork *)
 - apply: IH'.
       by rewrite -size_vars_pairs_btNode.
@@ -843,9 +858,9 @@ Corollary unify_complete s t1 t2 :
   catch (
     unify t1 t2 >>=
     assert (fun x => subst x.2 t == subst s1 t) >>=
-    fun x => Ret x.2
-  ) fail =
-  unify t1 t2 >>= fun x => Ret x.2)
+    fun x => Ret (Some x.2)
+  ) (Ret None) =
+  unify t1 t2 >>= fun x => Ret (Some x.2))
   /\ moregen s1 s.
 Proof.
 rewrite /unify addnC => /eqP Hs.
