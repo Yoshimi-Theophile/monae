@@ -9,6 +9,7 @@ theories/core/preamble.v
 theories/core/hierarchy.v
 theories/core/category.v
 theories/core/monad_transformer.v
+theories/core/unif.v
 theories/lib/monad_lib.v
 theories/lib/alt_lib.v
 theories/lib/fail_lib.v
