@@ -372,7 +372,7 @@ Proof. by move=> s1 s2; apply: boolp.funext; elim => //= t1 -> t2 ->. Qed.
 *)
 
 Lemma unifiesb_same sm t : unifiesb sm t t.
-Proof. by rewrite /unifiesb. Qed.
+Proof. exact: eqxx. Qed.
 
 Lemma unifiesb_pairs_same sm t l :
   unifiesb_pairs sm l -> unifiesb_pairs sm ((t,t) :: l).
@@ -383,12 +383,13 @@ Qed.
 
 Lemma unifiesb_swap sm t1 t2 :
   unifiesb sm t1 t2 = unifiesb sm t2 t1.
-Proof. by rewrite /unifiesb eq_sym. Qed.
+Proof. exact: eq_sym. Qed.
 
 Lemma unifiesb_pairs_swap sm t1 t2 l :
   unifiesb_pairs sm ((t1, t2) :: l) = unifiesb_pairs sm ((t2, t1) :: l).
-Proof. elim: l => /= [ | a l IH ]; by rewrite unifiesb_swap. Qed.
+Proof. by rewrite /= unifiesb_swap. Qed.
 
+(*
 Definition unifies (s : substType) t1 t2 := subst_list s t1 = subst_list s t2.
 Definition unifies_pairs (s : substType) (l : constr_list) :=
   forall t1 t2, (t1,t2) \in l -> unifies s t1 t2.
@@ -399,7 +400,7 @@ apply/(iffP allP) => /= H.
 - by move=> t1 t2 Ht; apply/eqP/(H (t1,t2)).
 - by case=> t1 t2 Ht; apply/eqP/(H t1 t2).
 Qed.
-
+*)
 End Lemmas.
 
 Section Unify.
@@ -551,45 +552,28 @@ Qed.
 Lemma unifiesb_extend s v t t' :
   unifiesb s (btVar v) t -> unifiesb s (subst v t t') t'.
 Proof.
-  rewrite /unifiesb.
+  move/eqP => Heq; apply/eqP.
   elim: t' => //= [v' | t1 IH1 t2 IH2].
-  - rewrite /subst_list => /eqP Heq.
-    case: ifP => // /eqP <-.
-    by rewrite Heq.
-  - move => Heq.
-    have: subst_list s (subst v t t1) == subst_list s t1 by exact/IH1/Heq.
-    have: subst_list s (subst v t t2) == subst_list s t2 by exact/IH2/Heq.
-    by rewrite !subst_btNode => /eqP -> /eqP ->.
+  - by case: ifP => // /eqP <-.
+  - by rewrite !subst_btNode IH1 IH2.
 Qed.
 
 Lemma unifiesb_pairs_extend s v t l :
   unifiesb_pairs s ((btVar v, t) :: l) ->
   unifiesb_pairs s (map (subst_pair [:: (v, t)]) l).
 Proof.
-  move => /= /andP [h1 h2].
-  apply /unif_pairs.
-  move => t1 t2 /mapP /= [] [t3 t4] Hl [-> ->].
-  have Hv : unifiesb s (btVar v) t by apply h1.
-  apply/eqP.
-  have: unifiesb s (subst v t t3) t3 by apply:unifiesb_extend.
-  have: unifiesb s (subst v t t4) t4 by apply:unifiesb_extend.
-  rewrite /unifiesb => /eqP -> /eqP ->.
-  move/unif_pairs in h2.
-  exact /eqP/h2/Hl.
+  case/andP => h1 /allP /= h2.
+  rewrite /unifiesb_pairs all_map /unifiesb.
+  apply/allP => /= x Hx.
+  rewrite (eqP (unifiesb_extend x.1 h1)) (eqP (unifiesb_extend x.2 h1)).
+  exact: h2.
 Qed.
 
 Lemma unifiesb_pairs_btNode s tl1 tl2 tr1 tr2 l :
   unifiesb s (btNode tl1 tl2) (btNode tr1 tr2) ->
   unifiesb_pairs s l ->
   unifiesb_pairs s ((tl1,tr1)::(tl2,tr2)::l).
-Proof.
-  rewrite /unifiesb !subst_btNode => /eqP /eq_btNode -[H1 H2] Hs.
-  apply/unif_pairs => t3 t4.
-  rewrite !inE.
-  case/orP => [/eqP[-> ->] // |].
-  case/orP => [/eqP[-> ->] // |].
-  by apply/unif_pairs.
-Qed.
+Proof. by rewrite /unifiesb !subst_btNode eqb_btNode /= andbA => ->. Qed.
 
 Definition moregen s s' :=
   exists s2, forall t, subst_list s' t = subst_list s2 (subst_list s t).
