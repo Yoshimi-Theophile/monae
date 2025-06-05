@@ -685,27 +685,22 @@ Lemma unify_subst_complete s h v t l :
   btVar v != t ->
   complete_for s (runActionT (unify_subst (unify2 h) v t l)).
 Proof.
-  move=> /= IHh Hh Hs Hv.
-  rewrite /unify_subst.
+  rewrite /unify_subst => /= IHh Hh Hs Hv.
   case: ifPn => vt.
-    move: Hs => /= /andP [Hs1 ?].
-    by elim: (@not_unifiesb_occur v t s).
-  case: (IHh (map (subst_pair [:: (v, t)]) l)) => //.
-      have Hhv := @vars_pairs_decrease v t l vt.
-      apply (leq_trans Hhv).
-      by rewrite -ltnS.
-    by apply: unifiesb_pairs_extend.
+    case/andP: Hs => /= /not_unifiesb_occur; by elim.
+  case: (IHh (map (subst_pair [:: (v, t)]) l)) => /=.
+  - exact: (leq_trans (vars_pairs_decrease l vt)).
+  - exact: unifiesb_pairs_extend.
   move=> s1 [Hnf] [Hun] Hmg.
-  rewrite runActionTbind runActionTwrite.
-  exists (subst_comp [:: (v, t)] s1).
-  rewrite /nofailure /always !bindretf !bindA /=.
+  exists (subst_comp [:: (v, t)] s1) => /=.
+  rewrite runActionTbind runActionTwrite /nofailure /always !bindretf !bindA /=.
   do! split.
   - by under eq_bind do rewrite bindretf.
   - rewrite -[in RHS]Hun !bindA.
-    apply: eq_bind => x.
-    by rewrite bindretf /assert /guard /= bindA bindretf eqseq_cons eqxx.
+    apply: eq_bind => p.
+    by rewrite bindretf assertE /= bindA bindretf eqseq_cons eqxx.
   - apply: moregen_extend => //.
-    by move: Hs => /andP [-> ?].
+    by case/andP: Hs => ->.
 Qed.
 
 Theorem unify2_complete s h l :
