@@ -692,25 +692,18 @@ Qed.
 Lemma unify_subst_complete s h v t l :
   (forall l,
     h > size (vars_pairs l) -> unifiesb_pairs s l ->
-    exists s1,
-    (forall t' (f : substType -> substType),
-    catch (
-      runActionT (unify2 h l) >>=
+    exists s1, (forall t' (f : substType -> substType),
+    catch ( runActionT (unify2 h l) >>=
       assert (fun x => subst_list x.2 t' == subst_list s1 t') >>=
-      fun x => Ret (Some (f x.2))
-    ) (Ret None) =
+      fun x => Ret (Some (f x.2)) ) (Ret None) =
     runActionT (unify2 h l) >>= fun x => Ret (Some (f x.2)))
     /\ moregen s1 s) ->
   h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
   unifiesb_pairs s ((btVar v, t) :: l) ->
-  btVar v != t ->
-  exists s1,
-  (forall t' (f : substType -> substType),
-  catch (
-    runActionT (unify_subst (unify2 h) v t l) >>=
+  btVar v != t -> exists s1, (forall t' (f : substType -> substType),
+  catch ( runActionT (unify_subst (unify2 h) v t l) >>=
     assert (fun x => subst_list x.2 t' == subst_list s1 t') >>=
-    fun x => Ret (Some (f x.2))
-  ) (Ret None) =
+    fun x => Ret (Some (f x.2)) ) (Ret None) =
   runActionT (unify_subst (unify2 h) v t l) >>= fun x => Ret (Some (f x.2)))
   /\ moregen s1 s.
 Proof.
@@ -726,23 +719,13 @@ Proof.
     by apply: unifiesb_pairs_extend.
   move=> s1 [Hun Hmg].
   exists (subst_comp [:: (v, t)] s1); split => [t' f|].
-  rewrite runActionTbind runActionTwrite bindretf /= !bindA.
-  under [RHS]eq_bind do rewrite bindretf => /=.
-  under eq_bind do rewrite bindretf.
-  have Hcomp: forall x : unit * substType,
-    f (subst_comp [:: (v, t)] x.2) =
-    (f \o (subst_comp [:: (v, t)])) x.2 by done.
-  under [RHS]eq_bind do rewrite Hcomp.
-  rewrite -(Hun(subst v t t')) /assert /guard !bindA.
-  have HA: forall m (x : unit * substType),
-    (m >> Ret x) >>=
-      (fun x : unit * substType => Ret (Some ((f \o subst_comp [:: (v, t)]) x.2))) =
-    (m >> Ret (x.1, subst_comp [:: (v, t)] x.2)) >>=
-      (fun x : unit * substType => Ret (Some (f x.2)))
-  by move => *; rewrite !bindA !bindretf.
-  by under eq_bind do rewrite -HA.
-  apply: moregen_extend => //.
-  by move: Hs => /andP [-> ?].
+  - rewrite runActionTbind runActionTwrite bindretf /= !bindA.
+    under [RHS]eq_bind do rewrite bindretf => /=.
+    rewrite -(Hun (subst v t t') (f \o (subst_comp [:: (v, t)]))) /assert /guard !bindA.
+    congr catch. apply eq_bind => x.
+    by rewrite bindretf !bindA !bindretf.
+  - apply: moregen_extend => //.
+    by move: Hs => /andP [-> ?].
 Qed.
 
 Theorem unify2_complete s h l :
