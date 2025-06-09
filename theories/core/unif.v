@@ -372,7 +372,7 @@ Proof. by move=> s1 s2; apply: boolp.funext; elim => //= t1 -> t2 ->. Qed.
 *)
 
 Lemma unifiesb_same sm t : unifiesb sm t t.
-Proof. by rewrite /unifiesb. Qed.
+Proof. exact: eqxx. Qed.
 
 Lemma unifiesb_pairs_same sm t l :
   unifiesb_pairs sm l -> unifiesb_pairs sm ((t,t) :: l).
@@ -383,12 +383,13 @@ Qed.
 
 Lemma unifiesb_swap sm t1 t2 :
   unifiesb sm t1 t2 = unifiesb sm t2 t1.
-Proof. by rewrite /unifiesb eq_sym. Qed.
+Proof. exact: eq_sym. Qed.
 
 Lemma unifiesb_pairs_swap sm t1 t2 l :
   unifiesb_pairs sm ((t1, t2) :: l) = unifiesb_pairs sm ((t2, t1) :: l).
-Proof. elim: l => /= [ | a l IH ]; by rewrite unifiesb_swap. Qed.
+Proof. by rewrite /= unifiesb_swap. Qed.
 
+(*
 Definition unifies (s : substType) t1 t2 := subst_list s t1 = subst_list s t2.
 Definition unifies_pairs (s : substType) (l : constr_list) :=
   forall t1 t2, (t1,t2) \in l -> unifies s t1 t2.
@@ -399,7 +400,7 @@ apply/(iffP allP) => /= H.
 - by move=> t1 t2 Ht; apply/eqP/(H (t1,t2)).
 - by case=> t1 t2 Ht; apply/eqP/(H t1 t2).
 Qed.
-
+*)
 End Lemmas.
 
 Section Unify.
@@ -465,17 +466,15 @@ move => nin; elim: l => /= [| a l IHl].
 - by rewrite -IHl [RHS]andbCA.
 Qed.
 
+Definition always (M' : failMonad) T p (m : M' T) := m >>= assert p = m.
+
 Lemma unify_subst_sound h v t l :
-  (forall l,
-    runActionT (unify2 h l) >>=
-    assert (fun x => unifiesb_pairs x.2 l) =
-    runActionT (unify2 h l)
-  ) ->
-  runActionT (unify_subst (unify2 h) v t l) >>= 
-    assert (fun x => unifiesb_pairs x.2 ((btVar v, t) :: l)) =
-  runActionT (unify_subst (unify2 h) v t l).
+  (forall l, always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)))
+  ->
+  always (fun x => unifiesb_pairs x.2 ((btVar v, t) :: l))
+    (runActionT (unify_subst (unify2 h) v t l)).
 Proof.
-rewrite /unify_subst.
+rewrite /unify_subst /always.
 case/boolP: (v \in _) => Hocc // IH.
   by rewrite runActionTfail bindfailf.
 rewrite runActionTbind runActionTwrite !bindretf !bindA /= -[in RHS]IH.
@@ -486,9 +485,9 @@ by under [in RHS]eq_bind do rewrite assertE bindA bindretf.
 Qed.
 
 Theorem unify2_sound h l :
-  runActionT (unify2 h l) >>= assert (fun x => unifiesb_pairs x.2 l) =
-  runActionT (unify2 h l).
+  always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)).
 Proof.
+rewrite /always.
 elim: h l => /= [l | h IH l].
 - by rewrite runActionTfail bindfailf.
 move: (size_pairs l + 1) => h'.
@@ -512,10 +511,9 @@ destruct t1, t2; try by rewrite runActionTfail bindfailf.
 - by under eq_bind do rewrite assertE /unifiesb !subst_btNode eqb_btNode -andbA.
 Qed.
 
-Corollary soundness t1 t2:
-  unify t1 t2 >>= assert (fun x => unifiesb x.2 t1 t2) = unify t1 t2.
+Corollary soundness t1 t2: always (fun x => unifiesb x.2 t1 t2) (unify t1 t2).
 Proof.
-rewrite /unify /=.
+rewrite /unify /= /always.
 have Huup: forall s t1 t2, unifiesb s t1 t2 = unifiesb_pairs s [:: (t1, t2)]
 by move => *; rewrite /= andbT.
 under eq_bind do rewrite assertE Huup.
@@ -554,45 +552,28 @@ Qed.
 Lemma unifiesb_extend s v t t' :
   unifiesb s (btVar v) t -> unifiesb s (subst v t t') t'.
 Proof.
-  rewrite /unifiesb.
+  move/eqP => Heq; apply/eqP.
   elim: t' => //= [v' | t1 IH1 t2 IH2].
-  - rewrite /subst_list => /eqP Heq.
-    case: ifP => // /eqP <-.
-    by rewrite Heq.
-  - move => Heq.
-    have: subst_list s (subst v t t1) == subst_list s t1 by exact/IH1/Heq.
-    have: subst_list s (subst v t t2) == subst_list s t2 by exact/IH2/Heq.
-    by rewrite !subst_btNode => /eqP -> /eqP ->.
+  - by case: ifP => // /eqP <-.
+  - by rewrite !subst_btNode IH1 IH2.
 Qed.
 
 Lemma unifiesb_pairs_extend s v t l :
   unifiesb_pairs s ((btVar v, t) :: l) ->
   unifiesb_pairs s (map (subst_pair [:: (v, t)]) l).
 Proof.
-  move => /= /andP [h1 h2].
-  apply /unif_pairs.
-  move => t1 t2 /mapP /= [] [t3 t4] Hl [-> ->].
-  have Hv : unifiesb s (btVar v) t by apply h1.
-  apply/eqP.
-  have: unifiesb s (subst v t t3) t3 by apply:unifiesb_extend.
-  have: unifiesb s (subst v t t4) t4 by apply:unifiesb_extend.
-  rewrite /unifiesb => /eqP -> /eqP ->.
-  move/unif_pairs in h2.
-  exact /eqP/h2/Hl.
+  case/andP => h1 /allP /= h2.
+  rewrite /unifiesb_pairs all_map /unifiesb.
+  apply/allP => /= x Hx.
+  rewrite (eqP (unifiesb_extend x.1 h1)) (eqP (unifiesb_extend x.2 h1)).
+  exact: h2.
 Qed.
 
 Lemma unifiesb_pairs_btNode s tl1 tl2 tr1 tr2 l :
   unifiesb s (btNode tl1 tl2) (btNode tr1 tr2) ->
   unifiesb_pairs s l ->
   unifiesb_pairs s ((tl1,tr1)::(tl2,tr2)::l).
-Proof.
-  rewrite /unifiesb !subst_btNode => /eqP /eq_btNode -[H1 H2] Hs.
-  apply/unif_pairs => t3 t4.
-  rewrite !inE.
-  case/orP => [/eqP[-> ->] // |].
-  case/orP => [/eqP[-> ->] // |].
-  by apply/unif_pairs.
-Qed.
+Proof. by rewrite /unifiesb !subst_btNode eqb_btNode /= andbA => ->. Qed.
 
 Definition moregen s s' :=
   exists s2, forall t, subst_list s' t = subst_list s2 (subst_list s t).
@@ -689,65 +670,53 @@ Proof.
   by rewrite ?orbT.
 Qed.
 
+Definition nofailure T (m : N T) :=
+  catch (m >> Ret true) (Ret false) = m >> Ret true.
+
+Definition complete_for s (m : N (unit * substType)%type) :=
+  exists s1, nofailure m /\ always (fun x => x.2 == s1) m /\ moregen s1 s.
+
 Lemma unify_subst_complete s h v t l :
   (forall l,
     h > size (vars_pairs l) -> unifiesb_pairs s l ->
-    exists s1, (forall t' (f : substType -> substType),
-    catch ( runActionT (unify2 h l) >>=
-      assert (fun x => subst_list x.2 t' == subst_list s1 t') >>=
-      fun x => Ret (Some (f x.2)) ) (Ret None) =
-    runActionT (unify2 h l) >>= fun x => Ret (Some (f x.2)))
-    /\ moregen s1 s) ->
+    complete_for s (runActionT (unify2 h l))) ->
   h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
   unifiesb_pairs s ((btVar v, t) :: l) ->
-  btVar v != t -> exists s1, (forall t' (f : substType -> substType),
-  catch ( runActionT (unify_subst (unify2 h) v t l) >>=
-    assert (fun x => subst_list x.2 t' == subst_list s1 t') >>=
-    fun x => Ret (Some (f x.2)) ) (Ret None) =
-  runActionT (unify_subst (unify2 h) v t l) >>= fun x => Ret (Some (f x.2)))
-  /\ moregen s1 s.
+  btVar v != t ->
+  complete_for s (runActionT (unify_subst (unify2 h) v t l)).
 Proof.
-  move=> IHh Hh Hs Hv.
-  rewrite /unify_subst.
+  rewrite /unify_subst => /= IHh Hh Hs Hv.
   case: ifPn => vt.
-    move: Hs => /= /andP [Hs1 ?].
-    elim: (@not_unifiesb_occur v t s) => //.
-  case: (IHh (map (subst_pair [:: (v, t)]) l)) => //.
-      have Hhv := @vars_pairs_decrease v t l vt.
-      apply (leq_trans Hhv).
-      by rewrite -ltnS.
-    by apply: unifiesb_pairs_extend.
-  move=> s1 [Hun Hmg].
-  exists (subst_comp [:: (v, t)] s1); split => [t' f|].
-  - rewrite runActionTbind runActionTwrite bindretf /= !bindA.
-    under [RHS]eq_bind do rewrite bindretf => /=.
-    rewrite -(Hun (subst v t t') (f \o (subst_comp [:: (v, t)]))) /assert /guard !bindA.
-    congr catch. apply eq_bind => x.
-    by rewrite bindretf !bindA !bindretf.
+    case/andP: Hs => /= /not_unifiesb_occur; by elim.
+  case: (IHh (map (subst_pair [:: (v, t)]) l)) => /=.
+  - exact: (leq_trans (vars_pairs_decrease l vt)).
+  - exact: unifiesb_pairs_extend.
+  move=> s1 [Hnf] [Hun] Hmg.
+  exists (subst_comp [:: (v, t)] s1) => /=.
+  rewrite runActionTbind runActionTwrite /nofailure /always !bindretf !bindA /=.
+  do! split.
+  - by under eq_bind do rewrite bindretf.
+  - rewrite -[in RHS]Hun !bindA.
+    apply: eq_bind => p.
+    by rewrite bindretf assertE /= bindA bindretf eqseq_cons eqxx.
   - apply: moregen_extend => //.
-    by move: Hs => /andP [-> ?].
+    by case/andP: Hs => ->.
 Qed.
 
 Theorem unify2_complete s h l :
   h > size (vars_pairs l) ->
   unifiesb_pairs s l ->
-  exists s1,
-  (forall t (f : substType -> substType),
-  catch (
-    runActionT (unify2 h l) >>=
-    assert (fun x => subst_list x.2 t == subst_list s1 t) >>=
-    fun x => Ret (Some (f x.2))
-  ) (Ret None) =
-  runActionT (unify2 h l) >>= fun x => Ret (Some (f x.2)))
-  /\ moregen s1 s.
+  complete_for s (runActionT (unify2 h l)).
 Proof.
   elim: h l => //= h IH l Hh.
   move Hh': (size_pairs l + 1) => h'.
   have {Hh'} : h' > size_pairs l.
     by rewrite -Hh' addn1 ltnS.
   elim: h' l Hh => //= h' IH' [] //=.
-    move => *; exists subst0; split => // [t f|].
-    by rewrite runActionTret !bindretf /assert eqxx bindskipf bindretf catchret.
+    move => *; exists subst0.
+    rewrite /nofailure /always /=.
+    rewrite runActionTret !bindretf catchret assertE eqxx bindretf.
+    do !split => //.
     exists s => t; by rewrite subst_zero.
   case=> t1 t2 l Hh Hh' Hs.
   destruct t1, t2 => /=.
@@ -806,28 +775,12 @@ Proof.
 Qed.
 
 Corollary unify_complete s t1 t2 :
-  unifiesb s t1 t2 ->
-  exists s1,
-  (forall t,
-  catch (
-    unify t1 t2 >>=
-    assert (fun x => subst_list x.2 t == subst_list s1 t) >>=
-    fun x => Ret (Some x.2)
-  ) (Ret None) =
-  unify t1 t2 >>= fun x => Ret (Some x.2))
-  /\ moregen s1 s.
+  unifiesb s t1 t2 -> complete_for s (unify t1 t2).
 Proof.
 move => Hs.
-have [s' [Hf Hmg]]: exists s1 : substType, (forall t (f : substType -> substType),
-  catch ((unify t1 t2 >>= assert (fun x => subst_list x.2 t == subst_list s1 t)) >>=
-         (fun x => Ret (Some (f x.2)))) (Ret None) =
-  unify t1 t2 >>= (fun x => Ret (Some (f x.2)))) /\ 
-  moregen s1 s.
-apply unify2_complete.
-by rewrite addnC.
-by rewrite /unifiesb_pairs /all Hs.
-exists s'; split => [t|//].
-exact: Hf(id).
+apply: unify2_complete.
+  by rewrite addn1.
+by rewrite /unifiesb_pairs /= Hs.
 Qed.
 
 End Completeness.
