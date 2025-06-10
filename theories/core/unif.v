@@ -77,7 +77,7 @@ Let bind A B (m : M A) (f : A -> M B) : M B :=
 Let left_neutral : BindLaws.left_neutral bind ret.
 Proof.
 move=> A B /= m f.
-rewrite /bind /ret bindretf -[RHS]bindmret.
+rewrite /bind bindretf -[RHS]bindmret.
 apply: eq_bind => -[b s2].
 by rewrite mul1m.
 Qed.
@@ -85,7 +85,7 @@ Qed.
 Let right_neutral : BindLaws.right_neutral bind ret.
 Proof.
 move=> A m /=.
-rewrite /bind /ret -[RHS]bindmret.
+rewrite /bind -[RHS]bindmret.
 apply: eq_bind => -[a s1].
 by rewrite bindretf mulm1.
 Qed.
@@ -284,13 +284,13 @@ End Definitions.
 
 Section op.
 Lemma sconsA : associative subst_comp.
-Proof. exact: List.app_assoc. Qed.
+Proof. exact: catA. Qed.
 
 Lemma scons0s : left_id subst0 subst_comp.
 Proof. done. Qed.
 
 Lemma sconss0 : right_id subst0 subst_comp.
-Proof. exact: List.app_nil_r. Qed.
+Proof. exact: cats0. Qed.
 
 HB.instance Definition substIsLaw :=
   Monoid.isLaw.Build substType subst0 subst_comp sconsA scons0s sconss0.
@@ -310,7 +310,7 @@ Proof.
   elim: vl1 vl2 => //= x vl IH vl2.
   case: ifP => Hx.
   - rewrite inE IH.
-    case/boolP: (v == x) => // /eqP ->.
+    have [->|] //= := eqVneq v x.
     by rewrite Hx orbT.
   - by rewrite IH !inE orbA (orbC (v == x)).
 Qed.
@@ -328,33 +328,20 @@ Lemma size_union2 l1 l2 : size (union l1 l2) >= size l2.
 Proof.
   elim: l1 l2 => //= v l1 IH l2.
   case: ifP => Hv //.
-  refine (leq_trans _ (IH _)); exact: ltnW.
+  exact/leq_trans/IH.
 Qed.
-
-Lemma eq_btNode t1_1 t1_2 t2_1 t2_2 :
-  btNode t1_1 t1_2 = btNode t2_1 t2_2 <->
-  (t1_1 = t2_1) /\ (t1_2 = t2_2).
-Proof. by split; case => // -> ->. Qed.
 
 Lemma eqb_btNode t1_1 t1_2 t2_1 t2_2 :
   btNode t1_1 t1_2 == btNode t2_1 t2_2 =
   (t1_1 == t2_1) && (t1_2 == t2_2).
-Proof.
-case: andP.
-- by case => /eqP -> /eqP ->; apply: eqxx.
-- by apply: contra_notF => /eqP [] -> ->; rewrite !eqxx.
-Qed.
+Proof. by apply/sameP/andP/(iffP eqP) => -[] /eqP -> /eqP ->. Qed.
 
 Lemma subst_btInt s b : subst_list s (btInt b) = btInt b.
 Proof. by elim:s. Qed.
 
 Lemma subst_btNode s t1 t2:
   subst_list s (btNode t1 t2) = btNode (subst_list s t1) (subst_list s t2).
-Proof.
-move: t1 t2.
-elim:s => // a l IH *.
-exact: IH.
-Qed.
+Proof. elim: s t1 t2 => // a l IH *; exact: IH. Qed.
 
 Lemma subst_zero t : subst_list subst0 t = t.
 Proof. done. Qed.
@@ -457,13 +444,11 @@ Proof. by move => *; rewrite /unifiesb /= eqxx subst_same. Qed.
 
 Lemma unifiesb_pairs_subst s v t l :
   v \notin vars t ->
-  unifiesb (subst_comp [:: (v, t)] s) (btVar v) t &&
-  unifiesb_pairs (subst_comp [:: (v, t)] s) l =
+  unifiesb_pairs (subst_comp [:: (v, t)] s) ((btVar v, t) :: l) =
   unifiesb_pairs s ([seq subst_pair [:: (v, t)] i | i <- l]).
 Proof.
-move => nin; elim: l => /= [| a l IHl].
-- by rewrite unifiesb_subst.
-- by rewrite -IHl [RHS]andbCA.
+move=> nin; rewrite /= unifiesb_subst //= [RHS]all_map.
+by apply: eq_all => p.
 Qed.
 
 Definition always (M' : failMonad) T p (m : M' T) := m >>= assert p = m.
@@ -475,11 +460,10 @@ Lemma unify_subst_sound h v t l :
     (runActionT (unify_subst (unify2 h) v t l)).
 Proof.
 rewrite /unify_subst /always.
-case/boolP: (v \in _) => Hocc // IH.
+case: ifPn => Hocc // IH.
   by rewrite runActionTfail bindfailf.
-rewrite runActionTbind runActionTwrite !bindretf !bindA /= -[in RHS]IH.
-under eq_bind do rewrite bindretf /=.
-under eq_bind do rewrite assertE unifiesb_pairs_subst //.
+rewrite runActionTbind runActionTwrite !bindretf !bindA -[in RHS]IH /=.
+under eq_bind do rewrite bindretf assertE [_ && _]unifiesb_pairs_subst //.
 rewrite bindA.
 by under [in RHS]eq_bind do rewrite assertE bindA bindretf.
 Qed.
@@ -493,19 +477,19 @@ elim: h l => /= [l | h IH l].
 move: (size_pairs l + 1) => h'.
 elim: h' l => //= [l | h' IH' [| [t1 t2] l] /=].
 - by rewrite runActionTfail bindfailf.
-- under eq_bind do rewrite assertE guardT bindskipf.
+- under eq_bind do rewrite assertE bindskipf.
   by rewrite bindmret.
 destruct t1, t2; try by rewrite runActionTfail bindfailf.
 - case: ifPn; move=> /eqP eq.
   + rewrite eq -[RHS]IH'.
-    by under eq_bind do rewrite assertE unifiesb_same //=.
+    by under eq_bind do rewrite assertE unifiesb_same.
   + exact/unify_subst_sound.
 - exact/unify_subst_sound.
 - exact/unify_subst_sound.
 - under eq_bind do rewrite assertE unifiesb_swap.
   exact/unify_subst_sound.
-- have []:= eqVneq n n0 => /= H; try by rewrite runActionTfail bindfailf.
-  by under eq_bind do rewrite assertE H unifiesb_same /=.
+- case: ifPn => /= /eqP H; try by rewrite runActionTfail bindfailf.
+  by under eq_bind do rewrite assertE H unifiesb_same.
 - under eq_bind do rewrite assertE unifiesb_swap.
   exact/unify_subst_sound.
 - by under eq_bind do rewrite assertE /unifiesb !subst_btNode eqb_btNode -andbA.
@@ -513,22 +497,43 @@ Qed.
 
 Corollary soundness t1 t2: always (fun x => unifiesb x.2 t1 t2) (unify t1 t2).
 Proof.
-rewrite /unify /= /always.
-have Huup: forall s t1 t2, unifiesb s t1 t2 = unifiesb_pairs s [:: (t1, t2)]
-by move => *; rewrite /= andbT.
-under eq_bind do rewrite assertE Huup.
-exact: unify2_sound.
+rewrite /always -[RHS]unify2_sound /assert; apply eq_bind => x /=.
+by rewrite andbT.
 Qed.
 
 End Soundness.
 
 Section Completeness.
 
+Lemma unifiesb_occur_eq v t s :
+  unifiesb s (btVar v) t -> v \in vars t -> btVar v = t.
+Proof.
+move=> /eqP Hun Ht.
+have Hs: size_tree (subst_list s (btVar v)) >= size_tree (subst_list s t)
+  by rewrite Hun.
+elim: t {Hun} Ht Hs => //= [v' | t1 IH1 t2 IH2].
+- by rewrite inE => /eqP ->.
+- rewrite in_union_or => Hv Hs; exfalso.
+  move: IH1 IH2 Hv Hs.
+  wlog : t1 t2 / (v \in vars t1).
+    move=> IH IH1 IH2 /orP[] Hv Hs.
+    - by apply: (IH t1 t2) => //; rewrite Hv.
+    - apply: (IH t2 t1) => //=.
+        by rewrite Hv.
+      by move: Hs; rewrite !subst_btNode /= addnAC => ->.
+  move=> Hv.
+  case /boolP: (btVar v == t1) => /eqP vt1 IH1 _ _.
+    by rewrite -vt1 subst_btNode /= -addnA add1n ltnNge leq_addr.
+  move=> Hsz; apply /vt1 /IH1 /leq_trans /Hsz => //.
+  by rewrite subst_btNode /= addnAC leq_addl.
+Qed.
+
 Lemma not_unifiesb_occur v t s :
   btVar v != t -> v \in vars t -> ~unifiesb s (btVar v) t.
 Proof.
 move=> vt Ht /eqP Hun.
-have Hs: size_tree (subst_list s (btVar v)) >= size_tree (subst_list s t) by rewrite Hun.
+have Hs: size_tree (subst_list s (btVar v)) >= size_tree (subst_list s t)
+  by rewrite Hun.
 elim: t {Hun} vt Ht Hs => //= [v' | t1 IH1 t2 IH2] vt.
 - rewrite inE => /eqP Hv.
   by rewrite Hv eq_refl in vt.
@@ -538,14 +543,12 @@ elim: t {Hun} vt Ht Hs => //= [v' | t1 IH1 t2 IH2] vt.
     move=> IH IH1 IH2 /orP[] Hv Hs.
     - by apply: (IH t1 t2) => //; rewrite Hv.
     - apply: (IH t2 t1) => //=.
-      by rewrite Hv.
+        by rewrite Hv.
       by move: Hs; rewrite !subst_btNode /= addnAC => ->.
   move=> Hv IH1 _ _.
   case vt1: (btVar v == t1) IH1 => IH1.
     by rewrite -(eqP vt1) subst_btNode /= -addnA add1n ltnNge leq_addr.
-  move/(_ isT Hv) in IH1.
-  move=> Hsz; apply IH1.
-  apply/leq_trans/Hsz.
+  move=> Hsz; apply /IH1/leq_trans/Hsz => //.
   by rewrite subst_btNode /= addnAC leq_addl.
 Qed.
 
@@ -610,8 +613,7 @@ Proof.
 Qed.
 
 Lemma subst_sub x t t' :
-  {subset vars (subst x t t') <=
-  union (vars t) (vars t')}.
+  {subset vars (subst x t t') <= union (vars t) (vars t')}.
 Proof.
   elim: t' => //= [v | t1 IH1 t2 IH2] y.
   - rewrite in_union_or.
@@ -687,7 +689,7 @@ Lemma unify_subst_complete s h v t l :
 Proof.
   rewrite /unify_subst => /= IHh Hh Hs Hv.
   case: ifPn => vt.
-    case/andP: Hs => /= /not_unifiesb_occur; by elim.
+    case/andP: Hs Hv => /= /unifiesb_occur_eq -> //; by rewrite eqxx.
   case: (IHh (map (subst_pair [:: (v, t)]) l)) => /=.
   - exact: (leq_trans (vars_pairs_decrease l vt)).
   - exact: unifiesb_pairs_extend.
