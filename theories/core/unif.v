@@ -494,7 +494,7 @@ Lemma unify_subst_sound h v t l :
     (unify_subst (unify2 h) v t l).
 Proof.
 rewrite /unify_subst.
-case/boolP: (v \in _) => Hocc // IH.
+case: ifPn => Hocc // IH.
   exact: always_fail.
 set l' := map _ l.
 case: (IH l') => a [-> | [] [] [] -> Ha]; exists [:: (v,t) & a].
@@ -533,10 +533,10 @@ Qed.
 
 Corollary soundness t1 t2: always (fun x => unifiesb x.2 t1 t2) (unify t1 t2).
 Proof.
-rewrite /unify /= /always.
+rewrite /unify /always /=.
 have Huup: forall s t1 t2, unifiesb s t1 t2 = unifiesb_pairs s [:: (t1, t2)]
-by move => *; rewrite /= andbT.
-under eq_bind do rewrite assertE Huup.
+  by move => *; rewrite /= andbT.
+under boolp.eq_exists do rewrite Huup.
 exact: unify2_sound.
 Qed.
 
