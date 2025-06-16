@@ -28,9 +28,36 @@ HB.structure Definition MonadAction (S : UU0) (S0 : S) (op : Monoid.law S0) :=
 
 Arguments action {_ _ _ _ _}.
 
-#[short(type=actionFailMonad)]
-HB.structure Definition MonadActionFail S S0 op :=
-  {M of isMonadAction S S0 op M & MonadFail M }.
+HB.mixin Record isMonadActionRun (S : UU0) (S0 : S) (op : Monoid.law S0)
+  (N : monad) (M : UU0 -> UU0) of @MonadAction S S0 op M := {
+  runActionT : forall A : UU0, M A -> N (A * S)%type;
+  runActionTret : forall (A : UU0) (a : A),
+    @runActionT _ (Ret a) = Ret (a, S0) ;
+  runActionTbind : forall (A B : UU0) (m : M A) (f : A -> M B),
+    @runActionT _ (m >>= f) =
+    @runActionT _ m >>=
+      fun x => @runActionT _ (f x.1) >>=
+      fun y => Ret (y.1, op x.2 y.2) ;
+  runActionTaction : forall (A : UU0) (s : S) (m : M A),
+    @runActionT _ (action s m) = 
+    @runActionT _ m >>= fun x => Ret (x.1, op s x.2);
+}.
+
+#[short(type=actionRunMonad)]
+HB.structure Definition MonadActionRun S S0 op N:=
+  {M of isMonadActionRun S S0 op N M}.
+
+HB.mixin Record isMonadActionRunFail (S : UU0) (S0 : S) (op : Monoid.law S0)
+  (N : failMonad) (M : UU0 -> UU0) of @MonadActionRun S S0 op N M & MonadFail M := {
+  runActionTfail : forall (A : UU0),
+    runActionT _ (@fail M A) = @fail N _;
+}.
+
+#[short(type=actionRunFailMonad)]
+HB.structure Definition MonadActionRunFail S S0 op N:=
+  {M of isMonadActionRunFail S S0 op N M}.
+
+Arguments runActionT {_ _ _ _ _ _}.
 
 Module ActionMonad.
 Section actionMonad.
@@ -78,6 +105,8 @@ Qed.
 Let action {A : UU0} s2 (m : M A) : M A :=
   m >>= (fun '(a, s1) => Ret (a, op s2 s1)).
 
+Let runActionT (A : UU0) (m : M A) : N (A * S)%type := m.
+
 Let action0 A : @action A S0 = id.
 Proof.
 apply: boolp.funext.
@@ -108,21 +137,72 @@ apply eq_bind => -[b s2].
 by rewrite bindretf mulmA.
 Qed.
 
+Let runActionTret (A : UU0) (a : A) :
+  runActionT (ret a) = Ret (a, S0).
+Proof. by rewrite /runActionT /ret. Qed.
+
+Let runActionTbind (A B : UU0) (m : M A) (f : A -> M B) :
+  runActionT (bind m f) =
+  runActionT m >>=
+    fun x => runActionT (f x.1) >>=
+    fun y => Ret (y.1, op x.2 y.2).
+Proof.
+rewrite /runActionT /acto.
+apply eq_bind => -[a s1] /=.
+apply eq_bind => -[b s2] //=.
+Qed.
+
+Let runActionTaction (A : UU0) (s : S) (m : M A) :
+    runActionT (action s m) = 
+    runActionT m >>= fun x => Ret (x.1, op s x.2).
+Proof.
+rewrite /runActionT /action.
+apply eq_bind => -[a s1] //=.
+Qed.
+
 HB.instance Definition _ :=
   isMonadAction.Build S S0 op acto action0 actionA actionBind.
+
+HB.instance Definition _ :=
+  isMonadActionRun.Build S S0 op N acto runActionTret runActionTbind runActionTaction.
 
 End actionMonad.
 End ActionMonad.
 HB.export ActionMonad.
 
+Module ActionFailMonad.
+Section actionFailMonad.
+
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : failMonad).
+
+Definition acto : UU0 -> UU0 := ActionMonad.acto op N.
+Local Notation M := acto.
+
+Let failM (A : UU0) : M A := fail.
+
+Let bindfailf : BindLaws.left_zero (@bind M) failM.
+Proof. by move => *; rewrite /failM /bind /= bindfailf. Qed.
+
+Let runActionTfail A : runActionT (failM A) = fail.
+Proof. done. Qed.
+
+HB.instance Definition _ := MonadActionRun.on M.
+
+HB.instance Definition _ := isMonadFail.Build acto bindfailf.
+
+HB.instance Definition _ :=
+  isMonadActionRunFail.Build S S0 op N acto runActionTfail.
+
+End actionFailMonad.
+End ActionFailMonad.
+HB.export ActionFailMonad.
+
 Section WriterMonad.
 
 Import Monoid.Theory.
 
-Variables (S : UU0) (S0 : S) (op : Monoid.law S0).
-
-Section write.
-Variable M : actionMonad op.
+Variables (S : UU0) (S0 : S) (op : Monoid.law S0) (N : failMonad)
+          (M : @actionRunMonad S S0 op N).
 
 Definition write (s : S) : M unit := action s (Ret tt).
 
@@ -130,9 +210,9 @@ Lemma writeA a b :
   (write a) >> (write b) = write (op a b).
 Proof. by rewrite /write -actionBind bindretf actionA. Qed.
 
-Lemma write0 : write S0 = Ret tt.
-Proof. by rewrite /write action0. Qed.
-End write.
+Lemma runActionTwrite (s : S) :
+  runActionT (write s) = Ret (tt, s).
+Proof. by rewrite /write runActionTaction runActionTret bindretf /= mulm1. Qed.
 
 End WriterMonad.
 
@@ -286,6 +366,11 @@ Proof.
   - by rewrite in_union_or negb_or => /andP[] /IH1 -> /IH2 ->.
 Qed.
 
+(*
+Lemma substD : {morph subst: s1 s2 / subst_comp s1 s2 >-> s2 \o s1}.
+Proof. by move=> s1 s2; apply: boolp.funext; elim => //= t1 -> t2 ->. Qed.
+*)
+
 Lemma unifiesb_same sm t : unifiesb sm t t.
 Proof. exact: eqxx. Qed.
 
@@ -304,11 +389,24 @@ Lemma unifiesb_pairs_swap sm t1 t2 l :
   unifiesb_pairs sm ((t1, t2) :: l) = unifiesb_pairs sm ((t2, t1) :: l).
 Proof. by rewrite /= unifiesb_swap. Qed.
 
+(*
+Definition unifies (s : substType) t1 t2 := subst_list s t1 = subst_list s t2.
+Definition unifies_pairs (s : substType) (l : constr_list) :=
+  forall t1 t2, (t1,t2) \in l -> unifies s t1 t2.
+
+Lemma unif_pairs sm l : reflect (unifies_pairs sm l) (unifiesb_pairs sm l).
+Proof.
+apply/(iffP allP) => /= H.
+- by move=> t1 t2 Ht; apply/eqP/(H (t1,t2)).
+- by case=> t1 t2 Ht; apply/eqP/(H t1 t2).
+Qed.
+*)
 End Lemmas.
 
 Section Unify.
 
-Variables (M : actionFailMonad op).
+Variables (N : exceptMonad) (M : actionRunFailMonad op N).
+Let write := write M.
 
 Section Unify1.
 
@@ -316,7 +414,7 @@ Variable unify2 : constr_list -> M unit.
 
 Definition unify_subst x t r : M unit :=
   if x \in vars t then fail
-  else (fun f => write M f >> unify2 (map (subst_pair f) r)) [:: (x, t)].
+  else (fun f => write f >> unify2 (map (subst_pair f) r)) [:: (x, t)].
 
 Fixpoint unify1 (h : nat) (l : constr_list) : M unit :=
 if h is h.+1 then
@@ -347,9 +445,9 @@ Fixpoint unify2 (h : nat) l : M unit :=
 
 End Unify2.
 
-Definition unify t1 t2 : M unit :=
+Definition unify t1 t2 : N (unit * substType)%type :=
   let l := [:: (t1,t2)] in
-  unify2 (size (vars_pairs l) + 1) l.
+  runActionT (unify2 (size (vars_pairs l) + 1) l).
 
 Section Soundness.
 
@@ -368,65 +466,57 @@ move => nin; elim: l => /= [| a l IHl].
 - by rewrite -IHl [RHS]andbCA.
 Qed.
 
-Definition always T (p : _ -> bool) (m : M T) :=
-  exists a, m = write M a >> fail
-         \/ exists r : T, m = write M a >> Ret r /\ p (r, a).
-
-Lemma always_fail T P : exists a, @fail M T = write M a >> fail \/ P a.
-Proof. by exists subst0; rewrite write0 bindretf; left. Qed.
-
-Lemma always_ret T (p : _ -> bool) r : p (r, subst0) -> @always T p (Ret r).
-Proof. by exists subst0; right; exists r; rewrite write0 bindretf. Qed.
+Definition always (M' : failMonad) T p (m : M' T) := m >>= assert p = m.
 
 Lemma unify_subst_sound h v t l :
-  (forall l, always (fun x => unifiesb_pairs x.2 l) (unify2 h l)) ->
+  (forall l, always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)))
+  ->
   always (fun x => unifiesb_pairs x.2 ((btVar v, t) :: l))
-    (unify_subst (unify2 h) v t l).
+    (runActionT (unify_subst (unify2 h) v t l)).
 Proof.
-rewrite /unify_subst.
-case: ifPn => Hocc // IH.
-  exact: always_fail.
-set l' := map _ l.
-case: (IH l') => a [-> | [] [] [] -> Ha]; exists [:: (v,t) & a].
-  by rewrite -bindA writeA; left.
-right; exists tt.
-by rewrite -bindA writeA /= unifiesb_pairs_subst.
+rewrite /unify_subst /always.
+case/boolP: (v \in _) => Hocc // IH.
+  by rewrite runActionTfail bindfailf.
+rewrite runActionTbind runActionTwrite !bindretf !bindA /= -[in RHS]IH.
+under eq_bind do rewrite bindretf /=.
+under eq_bind do rewrite assertE unifiesb_pairs_subst //.
+rewrite bindA.
+by under [in RHS]eq_bind do rewrite assertE bindA bindretf.
 Qed.
 
 Theorem unify2_sound h l :
-  always (fun x => unifiesb_pairs x.2 l) (unify2 h l).
+  always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)).
 Proof.
+rewrite /always.
 elim: h l => /= [l | h IH l].
-- exact: always_fail.
+- by rewrite runActionTfail bindfailf.
 move: (size_pairs l + 1) => h'.
 elim: h' l => //= [l | h' IH' [| [t1 t2] l] /=].
-- exact: always_fail.
-- exact: always_ret.
-destruct t1, t2; try exact: always_fail; rewrite /always /=.
-- case: ifPn => /eqP eq.
-  + under boolp.eq_exists do rewrite eq unifiesb_same.
-    exact: IH'.
+- by rewrite runActionTfail bindfailf.
+- under eq_bind do rewrite assertE guardT bindskipf.
+  by rewrite bindmret.
+destruct t1, t2; try by rewrite runActionTfail bindfailf.
+- case: ifPn; move=> /eqP eq.
+  + rewrite eq -[RHS]IH'.
+    by under eq_bind do rewrite assertE unifiesb_same //=.
   + exact/unify_subst_sound.
 - exact/unify_subst_sound.
 - exact/unify_subst_sound.
-- under boolp.eq_exists do rewrite unifiesb_swap.
+- under eq_bind do rewrite assertE unifiesb_swap.
   exact/unify_subst_sound.
-- case: ifPn => [/eqP -> | _ /=].
-    case: (IH' l) => a; exists a.
-    by rewrite unifiesb_same.
-  exact: always_fail.
-- under boolp.eq_exists do rewrite unifiesb_swap.
+- have []:= eqVneq n n0 => /= H; try by rewrite runActionTfail bindfailf.
+  by under eq_bind do rewrite assertE H unifiesb_same /=.
+- under eq_bind do rewrite assertE unifiesb_swap.
   exact/unify_subst_sound.
-- under boolp.eq_exists do rewrite /unifiesb !subst_btNode eqb_btNode -andbA.
-  exact: IH'.
+- by under eq_bind do rewrite assertE /unifiesb !subst_btNode eqb_btNode -andbA.
 Qed.
 
 Corollary soundness t1 t2: always (fun x => unifiesb x.2 t1 t2) (unify t1 t2).
 Proof.
-rewrite /unify /always /=.
+rewrite /unify /= /always.
 have Huup: forall s t1 t2, unifiesb s t1 t2 = unifiesb_pairs s [:: (t1, t2)]
-  by move => *; rewrite /= andbT.
-under boolp.eq_exists do rewrite Huup.
+by move => *; rewrite /= andbT.
+under eq_bind do rewrite assertE Huup.
 exact: unify2_sound.
 Qed.
 
@@ -580,17 +670,20 @@ Proof.
   by rewrite ?orbT.
 Qed.
 
-Definition complete_for s (m : M unit) :=
-  exists s1, m = write M s1 >> Ret tt /\ moregen s1 s.
+Definition nofailure T (m : N T) :=
+  catch (m >> Ret true) (Ret false) = m >> Ret true.
+
+Definition complete_for s (m : N (unit * substType)%type) :=
+  exists s1, nofailure m /\ always (fun x => x.2 == s1) m /\ moregen s1 s.
 
 Lemma unify_subst_complete s h v t l :
   (forall l,
     h > size (vars_pairs l) -> unifiesb_pairs s l ->
-    complete_for s (unify2 h l)) ->
+    complete_for s (runActionT (unify2 h l))) ->
   h.+1 > size (vars_pairs ((btVar v, t) :: l)) ->
   unifiesb_pairs s ((btVar v, t) :: l) ->
   btVar v != t ->
-  complete_for s (unify_subst (unify2 h) v t l).
+  complete_for s (runActionT (unify_subst (unify2 h) v t l)).
 Proof.
   rewrite /unify_subst => /= IHh Hh Hs Hv.
   case: ifPn => vt.
@@ -598,18 +691,22 @@ Proof.
   case: (IHh (map (subst_pair [:: (v, t)]) l)) => /=.
   - exact: (leq_trans (vars_pairs_decrease l vt)).
   - exact: unifiesb_pairs_extend.
-  move=> s1 [Hnf] Hmg.
+  move=> s1 [Hnf] [Hun] Hmg.
   exists (subst_comp [:: (v, t)] s1) => /=.
-  rewrite Hnf -bindA writeA /=.
-  split => //.
-  apply: moregen_extend => //.
-  by case/andP: Hs => ->.
+  rewrite runActionTbind runActionTwrite /nofailure /always !bindretf !bindA /=.
+  do! split.
+  - by under eq_bind do rewrite bindretf.
+  - rewrite -[in RHS]Hun !bindA.
+    apply: eq_bind => p.
+    by rewrite bindretf assertE /= bindA bindretf eqseq_cons eqxx.
+  - apply: moregen_extend => //.
+    by case/andP: Hs => ->.
 Qed.
 
 Theorem unify2_complete s h l :
   h > size (vars_pairs l) ->
   unifiesb_pairs s l ->
-  complete_for s (unify2 h l).
+  complete_for s (runActionT (unify2 h l)).
 Proof.
   elim: h l => //= h IH l Hh.
   move Hh': (size_pairs l + 1) => h'.
@@ -617,7 +714,9 @@ Proof.
     by rewrite -Hh' addn1 ltnS.
   elim: h' l Hh => //= h' IH' [] //=.
     move => *; exists subst0.
-    rewrite write0 bindretf; split => //.
+    rewrite /nofailure /always /=.
+    rewrite runActionTret !bindretf catchret assertE eqxx bindretf.
+    do !split => //.
     exists s => t; by rewrite subst_zero.
   case=> t1 t2 l Hh Hh' Hs.
   destruct t1, t2 => /=.
