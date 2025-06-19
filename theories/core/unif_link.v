@@ -194,15 +194,16 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   have : seq.nth None ws n = None by case n.
   elim: vs ws => /= [|a vs IH] ws Hws.
     rewrite !bindretf !bindA !cputget Hws.
-    rewrite -cputchk !bindA !bindskipf.
+    rewrite -cputchk bindA [RHS]bindA.
     apply: eq_bind => _.
-    under cgetnewE => l Hl.
+    rewrite [X in _ >> X]bindA.
+    under cchknewE => l Hl.
       under eq_bind do rewrite bindretf.
       rewrite bindA bindretf -[uget _]cgetret -bindA.
       rewrite cputgetC //.
       over.
-    rewrite cnewget.
-    apply: cgetnewE => l _.
+    rewrite cnewget [X in _ = _ >> X]bindA.
+    apply: cchknewE => l _.
     by rewrite bindA !bindretf.
   have [<-|na] := eqVneq n a.
     rewrite !bindA !cputget.
