@@ -183,6 +183,13 @@ Definition cenv (vs : list nat) :=
   do vars <- cnew (ml_list (ml_option (ml_ref ml_uvar))) nil;
   foldr (fun n m => add_var vars n >> m) (Ret vars) vs.
 
+Lemma cputgetC T1 T2 (r1 : loc T1) (r2 : loc T2)
+  (s1 : coq_type N T1) (A : UU0) (k : coq_type N T2 -> M A) :
+  loc_id r1 != loc_id r2 ->
+  cput r1 s1 >> (cget r2 >>= k) =
+  cget r2 >>= (fun v : coq_type N T2 => cput r1 s1 >> k v).
+Proof. by move=> *; rewrite -bindA cputgetC. Qed.
+
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
@@ -199,8 +206,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
     rewrite [X in _ >> X]bindA.
     under cchknewE => l Hl.
       under eq_bind do rewrite bindretf.
-      rewrite bindA bindretf -[uget _]cgetret -bindA.
-      rewrite cputgetC //.
+      rewrite bindA bindretf -[uget _]cgetret cputgetC //.
       over.
     rewrite cnewget [X in _ = _ >> X]bindA.
     apply: cchknewE => l _.
@@ -218,14 +224,14 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
     elim: vs ws {IH Hws} => /= [|b vs IH] ws.
       rewrite !bindretf !bindA !cputget.
       rewrite nth_set_nth /= eqxx !bindretf.
-      by rewrite -[uget _]cgetret -[cput vars _ >> _]bindA cputgetC // cputget.
+      by rewrite -[uget _]cgetret cputgetC // cputget.
     rewrite !bindA !cputget nth_set_nth /=.
     case: ifPn => bn.
       by rewrite !bindretf IH.
     case nthb: (seq.nth None ws b) => [l'|].
       by rewrite !bindretf IH.
     rewrite !bindA -!cputnewC.
-    rewrite -[LHS]bindA -[RHS]bindA !cputgetC 1?eq_sym // -!cputnewC.
+    rewrite !cputgetC 1?eq_sym // -!cputnewC.
     apply: eq_bind => _.
     apply: eq_bind => _.
     apply: eq_bind => r.
