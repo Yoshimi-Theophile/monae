@@ -234,9 +234,9 @@ Qed.
 Lemma crunenv vs : crun (cenv vs).
 Proof.
 suff: crun (cenv vs) /\
-      forall T n k,
-        do r <- cenv vs; do vars <- cget r; k r vars (isSome (nth None vars n))
-      = do r <- cenv vs; do vars <- cget r; k r vars (n \in vs) :> M T.
+      forall T n (k : _ -> _ -> bool -> M T),
+        do r <- cenv vs; do vars <- cget r; k r vars (nth None vars n)
+      = do r <- cenv vs; do vars <- cget r; k r vars (n \in vs).
   by case.
 elim/last_ind: vs => [|vs n [IH1 IH2]].
   split.
@@ -260,9 +260,7 @@ split.
   rewrite -cats1 cenv_cat /=.
   rewrite -crunmskip bindA.
   under eq_bind do rewrite bindA bindretf Hadd bindmskip.
-  rewrite (IH2 _ _ (fun r vars cond =>
-    if cond then skip else
-    cnew ml_uvar (uVar n) >>= fun l => cput r (set_nth None vars n (Some l)))).
+  rewrite (IH2 _ _ (fun r vars cond => if cond then _ else _)).
   case/boolP: (n \in vs) => Hn.
     under eq_bind => r do
       rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
@@ -270,14 +268,8 @@ split.
     by rewrite -bindA crunmskip -cenv_chk.
   rewrite -bindA_uncurry -bindA_uncurry.
   apply: crungetput.
-  rewrite (bindA_uncurry _ _ (fun
-        (x : loc (ml_list (ml_option (ml_ref ml_uvar))) *
-            coq_type N (ml_list (ml_option (ml_ref ml_uvar))))
-          (y : loc ml_uvar) => cget x.1)).
-  rewrite (bindA_uncurry _ _ (fun
-        (x : loc (ml_list (ml_option (ml_ref ml_uvar))))
-        (y : coq_type N (ml_list (ml_option (ml_ref ml_uvar))))
-        => cnew ml_uvar (uVar n) >> cget x)).
+  rewrite (bindA_uncurry _ _ (fun (x : _ * _) y => cget x.1)).
+  rewrite (bindA_uncurry _ _ (fun x y => _ >> cget x)).
   rewrite -crunmskip bindA.
   under eq_bind do
     rewrite bindA -[cget _ >> _]bindmret !bindA cgetnewD bindretf -bindA.
@@ -292,16 +284,8 @@ move=> T i k.
 rewrite -{1 2}cats1 cenv_cat /= 2!bindA.
 under eq_bind do rewrite bindA bindretf Hadd !bindA.
 under [RHS]eq_bind do rewrite bindA bindretf Hadd !bindA.
-rewrite (IH2 _ _ (fun r vars cond =>
-   (if cond then skip else
-    cnew ml_uvar (uVar n) >>=
-      (fun l => cput r (set_nth None vars n (Some l)))) >>
-    (cget r >>= fun vars => k r vars (nth None vars i)))).
-rewrite (IH2 _ _ (fun r vars cond =>
-   (if cond then skip else
-    cnew ml_uvar (uVar n) >>=
-      (fun l => cput r (set_nth None vars n (Some l)))) >>
-    (cget r >>= (k r)^~ (i \in rcons vs n)))).
+rewrite (IH2 _ _ (fun r vars cond => (if cond then skip else _) >> _)).
+rewrite (IH2 _ _ (fun r vars cond => (if cond then skip else _) >> _)).
 case/boolP: (n \in vs) => Hn.
   under eq_bind do rewrite bindskipf cgetget.
   rewrite IH2.
@@ -315,11 +299,7 @@ under [RHS]eq_bind do under eq_bind do
     (rewrite bindA; under eq_bind do rewrite cputget).
 rewrite mem_rcons in_cons.
 have [-> | Hin] //= := eqVneq i n.
-rewrite (IH2 _ _ (fun r vars cond =>
-     cnew ml_uvar (uVar n) >>= fun l =>
-     cput r (set_nth None vars n (Some l)) >>
-     k r (set_nth None vars n (Some l)) cond)).
-done.
+by rewrite (IH2 _ _ (fun r vars cond => _ >>= fun l => _ >> k _ _ cond)).
 Qed.
 
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
