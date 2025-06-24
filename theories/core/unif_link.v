@@ -1,7 +1,6 @@
 (* Require Import ZArith. *)
 From mathcomp Require Import all_ssreflect ssralg ssrint.
 From mathcomp Require boolp.
-Require Import monad_model.
 From HB Require Import structures.
 Require Import preamble hierarchy monad_lib typed_store_lib.
 
@@ -10,6 +9,7 @@ Unset Strict Implicit.
 Unset Printing Implicit Defensive.
 
 Local Open Scope monae_scope.
+Notation loc := (@loc _ nat).
 
 (* ======== *)
 
@@ -37,8 +37,6 @@ revert T2; induction T1; destruct T2;
 Defined.
 
 Definition val_nonempty (M : UU0 -> UU0) := tt.
-
-Notation loc := (@loc _ monad_model.locT_nat).
 
 Inductive uterm : Type :=
 | uLink : loc ml_uvar -> uterm
@@ -95,14 +93,14 @@ HB.structure Definition MonadTypedStoreFailRun S S0 op :=
   {M of isMonadTypedStoreRun S S0 op M & MonadFail M }.
 
 Definition typedStoreFailRunMonad (N : monad) :=
-  typedStoreFailRunMonad ml_type N monad_model.locT_nat.
+  typedStoreFailRunMonad ml_type N nat.
 
 Definition typedStoreMonad (N : monad) :=
-  typedStoreMonad ml_type N monad_model.locT_nat.
+  typedStoreMonad ml_type N nat.
 
 (*
 Definition typedStoreRunMonad (N : monad) :=
-  typedStoreRunMonad ml_type N monad_model.locT_nat.
+  typedStoreRunMonad ml_type N nat.
 *)
 
 (* ======== *)
@@ -284,7 +282,8 @@ case/boolP: (n \in vs) => Hn.
     rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
             -!bindA -/(cchk r).
   by rewrite -bindA crunmskip -cenv_chk.
-rewrite -bindA_uncurry -bindA_uncurry.
+rewrite -bindA_uncurry.
+rewrite -[_ >>= fun _ => cnew _ _ >>= _]bindA_uncurry.
 apply: crungetput.
 rewrite (bindA_uncurry _ _ (fun (x : _ * _) y => cget x.1)).
 rewrite (bindA_uncurry _ _ (fun x y => _ >> cget x)).
