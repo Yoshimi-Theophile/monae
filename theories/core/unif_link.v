@@ -221,25 +221,24 @@ apply: eq_bind => rn.
 by rewrite IH.
 Qed.
 
-Lemma cenv_chk vs : cenv vs = cenv vs >>= fun r => cchk r >> Ret r.
+Lemma cenv_chk vs : cenv vs >>= (fun r => cchk r >> Ret r) = cenv vs.
 Proof.
 elim/last_ind: vs => [|vs n _].
   rewrite bindA.
-  under [RHS]eq_bind do rewrite bindretf.
+  under eq_bind do rewrite bindretf.
   by rewrite cnewchk.
 rewrite -cats1 cenv_cat.
 rewrite bindA.
 apply: eq_bind=> r /=.
-rewrite [in RHS]bindA bindretf -{1}[Ret _]bindskipf -2!bindA.
+rewrite bindA bindretf -bindA.
 congr (_ >> _).
 rewrite !bindA -[LHS]cgetchk -[RHS]cgetchk.
 apply: eq_bind => vars.
 case Hnth: nth => [rn|].
   by rewrite !bindretf bindmskip cchkdup.
-apply: eq_bind => _.
+apply: eq_bind => _ /=.
 rewrite !bindA.
-apply: eq_bind => rn.
-by rewrite cputchk bindmskip.
+by under eq_bind do rewrite cputchk.
 Qed.
 
 Lemma cenv_get_nth vs : forall T i (k : _ -> _ -> bool -> M T),
@@ -281,9 +280,9 @@ case/boolP: (n \in vs) => Hn.
   under eq_bind => r do
     rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
             -!bindA -/(cchk r).
-  by rewrite -bindA crunmskip -cenv_chk.
+  by rewrite -bindA crunmskip cenv_chk.
 rewrite -bindA_uncurry.
-rewrite -[_ >>= fun _ => cnew _ _ >>= _]bindA_uncurry.
+rewrite -[_ >>= fun _ : _ * _ => _]bindA_uncurry.
 apply: crungetput.
 rewrite (bindA_uncurry _ _ (fun (x : _ * _) y => cget x.1)).
 rewrite (bindA_uncurry _ _ (fun x y => _ >> cget x)).
@@ -294,9 +293,8 @@ rewrite -bindA crunmskip -bindA.
 apply: crunnew.
 rewrite -crunmskip bindA.
 under eq_bind => r do
-  rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
-          -!bindA -/(cchk r).
-by rewrite -(bindA (cenv vs)) crunmskip -cenv_chk.
+  rewrite -(bindretf r (fun=>skip)) -(bindskipf (Ret r)) -!bindA -/(cchk r).
+by rewrite -(bindA (cenv vs)) crunmskip cenv_chk.
 Qed.
 
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
