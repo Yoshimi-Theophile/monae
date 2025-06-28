@@ -410,11 +410,15 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
   by exists vs2.
 Qed.
 
+Lemma matchsplit (m : M uterm) n v :
+  crun (m >>= (fun u => if u is uLink v then cget v else fail)) = Some (uVar n) ->
+  crun m = Some (uLink v) /\ crun (m >> cget v) = Some (uVar n).
+Abort.
+
 Lemma repr_issome m bt :
   represents m bt -> crun m.
 Proof.
-elim: bt => [v | n | bt1 IH1 bt2 IH2].
-- move => [m0 n |_ _ -> //|_ _ _ _ _ -> //| _ _ _ _ -> //].
+move => [m0 v |_ _ -> //|_ _ _ _ _ -> //| _ _ _ _ -> //].
 Abort.
 
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
