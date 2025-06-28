@@ -2226,6 +2226,15 @@ Definition crunret (A B : UU0) (m : M A) (s : B) :
   crun m -> crun (m >> Ret s) = Some s.
 Proof. by rewrite /crun /= MS_bindE/=; case: (m [::]) => //- []. Qed.
 
+Definition crunbind (A B : UU0) (a : A) (m : M A) (f : A -> M B) :
+  crun m = Some a -> crun (m >>= f) = crun (m >> f a).
+Proof.
+rewrite /crun /=.
+case Hm: m => [|[a0 s]] // [] h.
+subst a0.
+by rewrite !MS_bindE Hm !bindE.
+Qed.
+
 Definition crunskip : crun skip = Some tt.
 Proof. by []. Qed.
 
@@ -2274,7 +2283,7 @@ HB.instance Definition isMonadTypedStoreModel :=
     cputgetC cputnewC.
 HB.instance Definition isMonadTypedStoreRunModel :=
   isMonadTypedStoreRun.Build ml_type N locT_nat M
-    crunret crunskip crunnew crunnewgetC crungetput crunmskip.
+    crunret crunbind crunskip crunnew crunnewgetC crungetput crunmskip.
 
 End mkbind.
 End ModelTypedStoreRun.

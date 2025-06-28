@@ -502,6 +502,15 @@ Let crunret (A B : UU0) (m : M A) (s : B) :
   crun m -> crun (m >> Ret s) = Some s.
 Proof. by rewrite /crun /= MS_bindE/=; case: (m _) => //- []. Qed.
 
+Let crunbind (A B : UU0) (a : A) (m : M A) (f : A -> M B) :
+  crun m = Some a -> crun (m >>= f) = crun (m >> f a).
+Proof.
+rewrite /crun /=.
+case Hm: m => [|[a0 s]] // [] h.
+subst a0.
+by rewrite !MS_bindE Hm !bindE.
+Qed.
+
 Let crunskip : crun skip = Some tt.
 Proof. by []. Qed.
 
@@ -550,7 +559,7 @@ HB.instance Definition isMonadTypedStoreModel :=
     cputgetC cputnewC.
 HB.instance Definition isMonadTypedStoreRunModel :=
   isMonadTypedStoreRun.Build _ M _ M
-    crunret crunskip crunnew crunnewgetC crungetput crunmskip.
+    crunret crunbind crunskip crunnew crunnewgetC crungetput crunmskip.
 
 (* To restart computations *)
 Definition W (A : UU0) : UU0 := option_monad (A * Env).
