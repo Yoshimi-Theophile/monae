@@ -58,7 +58,6 @@ Lemma btree_eq_boolP : Equality.axiom btree_eq_dec.
 Proof. move=> x y. case: btree_eq_dec => //= H; by constructor. Qed.
 HB.instance Definition _ := hasDecEq.Build _ btree_eq_boolP.
 
-
 Definition ml_type_eq_mixin := hasDecEq.Build _ (comparePc MLTypes.ml_type_eq_dec).
 HB.instance Definition ml_type_eqType := ml_type_eq_mixin.
 
@@ -127,33 +126,16 @@ Inductive uvar : Type :=
 | uTerm : uterm -> uvar.
 *)
 
+(*
 Definition uget (v : loc ml_uvar) : M uvar := cget v.
-
 Definition uset (v : loc ml_uvar) : uvar -> M unit := cput v.
+*)
 
 Definition constr_list : Type := list (uterm * uterm)%type.
 
 End Definitions.
 
 Section unify.
-
-Inductive represents : M uterm -> btree -> Prop :=
-  | RVar (m : M uterm) (n : nat) :
-    (do u <- m; if u is uLink v then uget v else fail) = m >> Ret (uVar n) ->
-    represents m (btVar n)
-  | RInt (m : M uterm) (n : nat) :
-    m = m >> Ret (uInt n) ->
-    represents m (btInt n)
-  | RNode (m : M uterm) u1 u2 bt1 bt2 :
-    m = m >> Ret (uNode u1 u2) ->
-    represents (m >> Ret u1) bt1 ->
-    represents (m >> Ret u2) bt2 ->
-    represents m (btNode bt1 bt2)
-  | RLink (m : M uterm) (v : loc ml_uvar) (u : uterm) (bt : btree) :
-    m = m >> Ret (uLink v) ->
-    m >> uget v = m >> Ret (uTerm u)  ->
-    represents (m >> Ret u) bt ->
-    represents m bt.
 
 Section repr.
 Variable vars_loc : loc (ml_list (ml_option (ml_ref ml_uvar))).
@@ -268,19 +250,14 @@ have [-> | Hin] //= := eqVneq i n.
 by rewrite (IH _ _ (fun _ _ cond => _ >>= fun l => _ >> k _ _ cond)).
 Qed.
 
-Lemma crunenv vs : crun (cenv vs).
+Lemma crunenvadd n vs :
+  crun (cenv vs) ->
+  crun (do r <- cenv vs;
+        do vars <- cget r;
+        do l <- cnew ml_uvar (uVar n);
+        cput r (set_nth None vars n (Some l))).
 Proof.
-elim/last_ind: vs => [|vs n IH].
-  by rewrite /cenv bindmret crunnew0.
-rewrite -cats1 cenv_cat /=.
-rewrite -crunmskip bindA.
-under eq_bind do rewrite bindA bindretf bindmskip.
-rewrite (cenv_get_nth _ _ (fun _ _ cond => if cond then _ else _)).
-case/boolP: (n \in vs) => Hn.
-  under eq_bind => r do
-    rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
-            -!bindA -/(cchk r).
-  by rewrite -bindA crunmskip cenv_chk.
+move => H.
 rewrite -bindA_uncurry.
 rewrite -[_ >>= fun _ : _ * _ => _]bindA_uncurry.
 apply: crungetput.
@@ -297,6 +274,146 @@ under eq_bind => r do
 by rewrite -(bindA (cenv vs)) crunmskip cenv_chk.
 Qed.
 
+Lemma crunenv vs : crun (cenv vs).
+Proof.
+elim/last_ind: vs => [|vs n IH].
+  by rewrite /cenv bindmret crunnew0.
+rewrite -cats1 cenv_cat /=.
+rewrite -crunmskip bindA.
+under eq_bind do rewrite bindA bindretf bindmskip.
+rewrite (cenv_get_nth _ _ (fun _ _ cond => if cond then _ else _)).
+case/boolP: (n \in vs) => Hn.
+  under eq_bind => r do
+    rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
+            -!bindA -/(cchk r).
+  by rewrite -bindA crunmskip cenv_chk.
+exact: crunenvadd.
+Qed.
+
+Inductive represents : M uterm -> btree -> Prop :=
+| RVar (m : M uterm) (n : nat) :
+  crun (do u <- m; if u is uLink v then cget v else fail) = Some (uVar n) ->
+  represents m (btVar n)
+| RInt (m : M uterm) (n : nat) :
+  crun m = Some (uInt n) ->
+  represents m (btInt n)
+| RNode (m : M uterm) u1 u2 bt1 bt2 :
+  crun m = Some (uNode u1 u2) ->
+  represents (m >> Ret u1) bt1 ->
+  represents (m >> Ret u2) bt2 ->
+  represents m (btNode bt1 bt2)
+| RLink (m : M uterm) (v : loc ml_uvar) (u : uterm) (bt : btree) :
+  crun m = Some (uLink v) ->
+  crun (m >> cget v) = Some (uTerm u) ->
+  represents (m >> Ret u) bt ->
+  represents m bt.
+
+  (*
+  crun m = Some (uLink v) ->
+  crun (m >> uget v) = Some (uVar n) ->
+  *)
+
+Lemma cenv_var vs n k :
+  n \in vs ->
+  (cenv vs >>= fun r => cget r >>= fun vars => if nth None vars n is Some v then cget v else k r vars) =
+  cenv vs >> Ret (uVar n).
+Proof.
+  move => Hin.
+  rewrite !bindA /= -(cnewput (ml_list _) nil) -[RHS](cnewput (ml_list _) nil).
+  apply: eq_bind => vars.
+  set ws := nil.
+  move: Hin.
+  have : seq.nth None ws n = None by case n.
+  elim: vs ws => /= [//|a vs IH] ws Hws.
+  rewrite in_cons. 
+  case/boolP : (n == a) => [/eqP <- _|na Hin].
+    rewrite !bindA !cputget.
+    under eq_bind do rewrite Hws.
+    under [RHS]eq_bind do rewrite Hws.
+    rewrite -cputchk !bindA !bindskipf.
+    apply eq_bind => _.
+    rewrite -(cnewput ml_uvar (uVar n)).
+    rewrite -[in RHS](cnewput ml_uvar (uVar n)).
+    apply: cgetnewE => l Hl.
+    elim: vs ws {IH Hws} => /= [|b vs IH] ws.
+      rewrite !bindretf !cputget nth_set_nth /= eqxx.
+      by rewrite -cgetret cputgetC // cputget.
+    rewrite !bindA !cputget nth_set_nth /=.
+    case/boolP : (b == n) => bn.
+      by rewrite !bindretf IH.
+    case nthb: (seq.nth None ws b) => [l'|].
+      by rewrite !bindretf IH.
+    rewrite !bindA -!cputnewC !cputgetC 1?eq_sym // -!cputnewC.
+    apply: eq_bind => _.
+    apply: eq_bind => _.
+    apply: eq_bind => r.
+    rewrite -2![cput vars _ >> (cput _ _ >> _)]bindA cputput.
+    rewrite (_ : set_nth _ _ _ _ =
+                 set_nth None (set_nth None ws b (Some r)) n (Some l)).
+      by rewrite IH.
+    by rewrite set_set_nth eq_sym (negbTE bn).
+  rewrite !bindA !cputget.
+  case ntha: (seq.nth None ws a) => [l|].
+    by rewrite !bindretf IH.
+  rewrite !bindA -!cputnewC.
+  apply: eq_bind => _.
+  apply: eq_bind => l.
+  rewrite IH //.
+  by rewrite nth_set_nth /= (negbTE na).
+Qed.
+
+Lemma bindifsomeret (A B : UU0) (a : option A) (m : M A) (g : A -> M B) :
+  (if a is Some a then Ret a else m) >>= g =
+  if a is Some a then g a else m >>= g.
+Proof. case: a => // ?. by rewrite bindretf. Qed.
+
+Lemma matchifsomebool (A B : UU0) (a : option A) (m m' : M B) (f : A -> M B) :
+  (if a is Some a then f a else m) =
+  if isSome a then (if a is Some a then f a else m') else m.
+Proof. by case: a. Qed.
+
+Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
+Proof.
+elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
+- constructor.
+  case/boolP: (n \in vs) => Hin.
+    rewrite /add_var bindA.
+    under eq_bind => r.
+      rewrite !bindA.
+      under eq_bind => vars.
+        under eq_bind do rewrite bindretf.
+        rewrite bindifsomeret.
+      over.
+    over.
+    by rewrite cenv_var // crunret // crunenv.
+  rewrite /add_var -bindA.
+  under [cenv vs >> _]eq_bind => r do under eq_bind do rewrite (matchifsomebool _ _ fail).
+  rewrite (cenv_get_nth _ _ (fun _ _ cond => if cond then _ else _)) (negbTE Hin).
+  rewrite 2!bindA.
+  under eq_bind => r.
+    rewrite 2!bindA.
+    under eq_bind => vars.
+      rewrite !bindA.
+      under eq_bind do rewrite bindA; under eq_bind do rewrite !bindretf.
+    over.
+    rewrite -cgetchk.
+    under eq_bind => vars.
+      under cchknewE => r2 Hr2 do rewrite -[X in _ >> X]bindmret cputgetC //.
+      rewrite cnewget.
+    over.
+    rewrite cgetchk.
+    under eq_bind do rewrite -bindA.
+    rewrite -bindA.
+  over.
+  rewrite -bindA crunret //.
+  exact/crunenvadd/crunenv.
+- constructor.
+  by rewrite crunret // crunenv.
+- case Hu1: (crun (cenv vs >>= repr_btree^~ bt1)) => [u1|].
+  case Hu2: (crun (cenv vs >>= (fun x => repr_btree x bt1 >> repr_btree x bt2))) => [u2|].
+Abort.
+
+(*
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
@@ -360,6 +477,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   by rewrite [RHS]bindA bindretf.
 - apply: (@RNode _ (uInt 1) (uInt 2)).
 Abort.
+*)
 
 Fixpoint repr_uterm h (t : uterm) : M btree :=
   if h is h.+1 then
@@ -370,7 +488,7 @@ Fixpoint repr_uterm h (t : uterm) : M btree :=
         do bt2 <- repr_uterm h t2;
         Ret (btNode bt1 bt2)
     | uLink r =>
-        do v <- uget r;
+        do v <- cget r;
         match v with
         | uVar n => Ret (btVar n)
         | uTerm u => repr_uterm h u
@@ -404,7 +522,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
     rewrite [X in _ >> X]bindA.
     under cchknewE => l Hl.
       under eq_bind do rewrite bindretf.
-      rewrite bindA bindretf /uget.
+      rewrite bindA bindretf.
       rewrite [cput _ _ >> _](cputgetC _ _ Hl).
       over.
     rewrite cnewget [X in _ = _ >> X]bindA.
@@ -470,7 +588,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
     rewrite [X in _ >> X]bindA.
     under cchknewE => l Hl.
       under eq_bind do rewrite bindretf.
-      rewrite bindA bindretf /uget.
+      rewrite bindA bindretf.
       rewrite [cput _ _ >> _](cputgetC _ _ Hl).
       over.
     rewrite cnewget [X in _ = _ >> X]bindA.
@@ -523,7 +641,7 @@ Abort.
 Fixpoint expand_head (h : nat) (t : uterm) :=
   if h is h.+1 then
     if t is uLink v then
-      do vt <- uget v;
+      do vt <- (cget v : M uvar);
       if vt is uTerm t' then expand_head h t' else Ret t
     else Ret t
   else fail.
@@ -533,7 +651,7 @@ Fixpoint occurs_ref h (v : loc ml_uvar) t :=
     match t with
     | uLink w =>
         if loc_id v == loc_id w then fail else
-        do wt <- uget w;
+        do wt <- (cget w : M uvar);
         if wt is uTerm t' then occurs_ref h v t' else Ret tt
     | uInt _ => Ret tt
     | uNode t1 t2 =>
@@ -554,13 +672,13 @@ Fixpoint unify (h : nat) (l : constr_list) : M unit :=
           unify h ((tl1, tr1) :: (tl2, tr2) :: l')
       | uLink v1, uLink v2 =>
           if loc_id v1 == loc_id v2 then unify h l'
-          else uset v1 (uTerm t2) >> unify h l'
+          else cput v1 (uTerm t2) >> unify h l'
       | uLink v1, _ =>
           do _ <- occurs_ref h v1 t2;
-          uset v1 (uTerm t2) >> unify h l'
+          cput v1 (uTerm t2) >> unify h l'
       | _, uLink v2 =>
           do _ <- occurs_ref h v2 t1;
-          uset v2 (uTerm t1) >> unify h l'
+          cput v2 (uTerm t1) >> unify h l'
       | _, _ => fail
       end
     else Ret tt
