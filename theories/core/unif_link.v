@@ -372,6 +372,51 @@ Lemma matchifsomebool (A B : UU0) (a : option A) (m m' : M B) (f : A -> M B) :
   if isSome a then (if a is Some a then f a else m') else m.
 Proof. by case: a. Qed.
 
+Lemma cenv_repr (A : UU0) vs bt (k : _ -> M A) :
+  exists vs',
+    cenv vs >>= (fun x => repr_btree x bt >> k x) =
+    cenv vs' >>= k.
+Proof.
+move: vs k.
+elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
+- rewrite /cenv /= bindA.
+  under eq_bind => vars.
+    under eq_bind => x.
+      rewrite bindA.
+      under eq_bind do rewrite bindretf.
+      rewrite -(bindskipf (k x)) -bindA add_var_skipE.
+    over.
+  over.
+  exists (rcons vs v).
+  rewrite !bindA.
+  apply eq_bind => vars /=.
+  rewrite foldr_rcons.
+  elim: vs => /= [|a vs IH].
+    by rewrite [RHS]bindA 2!bindretf.
+  by rewrite bindA [RHS]bindA IH.
+- exists vs => /=.
+  by under eq_bind do rewrite bindretf.
+- under boolp.eq_exists => vs'.
+    under eq_bind => x.
+      rewrite bindA.
+      under eq_bind => u1.
+        rewrite bindA.
+        under eq_bind do rewrite bindretf.
+      over.
+    over.
+  over.
+  move: (IH1 vs (fun x => repr_btree x bt2 >> k x)) => [vs1 ->].
+  move: (IH2 vs1 k) => [vs2 ->].
+  by exists vs2.
+Qed.
+
+Lemma repr_issome m bt :
+  represents m bt -> crun m.
+Proof.
+elim: bt => [v | n | bt1 IH1 bt2 IH2].
+- move => [m0 n |_ _ -> //|_ _ _ _ _ -> //| _ _ _ _ -> //].
+Abort.
+
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
@@ -388,8 +433,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
     by rewrite cenv_var // crunret // crunenv.
   rewrite /add_var -bindA.
   under [cenv vs >> _]eq_bind => r do under eq_bind do rewrite (matchifsomebool _ _ fail).
-  rewrite (cenv_get_nth _ _ (fun _ _ cond => if cond then _ else _)) (negbTE Hin).
-  rewrite 2!bindA.
+  rewrite (cenv_get_nth _ _ (fun _ _ cond => if cond then _ else _)) (negbTE Hin) 2!bindA.
   under eq_bind => r.
     rewrite 2!bindA.
     under eq_bind => vars.
@@ -409,8 +453,11 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   exact/crunenvadd/crunenv.
 - constructor.
   by rewrite crunret // crunenv.
-- case Hu1: (crun (cenv vs >>= repr_btree^~ bt1)) => [u1|].
+- move: cenv_repr => H.
+  case Hu1: (crun (cenv vs >>= repr_btree^~ bt1)) => [u1|].
   case Hu2: (crun (cenv vs >>= (fun x => repr_btree x bt1 >> repr_btree x bt2))) => [u2|].
+  admit.
+  admit.
 Abort.
 
 (*
