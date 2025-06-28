@@ -1173,6 +1173,9 @@ HB.mixin Record isMonadTypedStoreRun (MLU : ML_universe) (N : monad) (locT : eqT
   crun : forall {A : UU0}, M A -> option A ; (* execute in empty store *)
   crunret : forall (A B : UU0) (m : M A) (s : B),
       crun m -> crun (m >> Ret s) = Some s ;
+  crunbind : forall (A B : UU0) (a : A) (m : M A) (f : A -> M B),
+      crun m = Some a ->
+      crun (m >>= f) = crun (m >> f a) ;
   crunskip :
       crun skip = Some tt ;
   crunnew : forall (A : UU0) T (m : M A) (s : A -> coq_type N T),
