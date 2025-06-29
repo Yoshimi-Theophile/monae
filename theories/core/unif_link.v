@@ -372,14 +372,15 @@ Lemma matchifsomebool (A B : UU0) (a : option A) (m m' : M B) (f : A -> M B) :
   if isSome a then (if a is Some a then f a else m') else m.
 Proof. by case: a. Qed.
 
-Lemma cenv_repr (A : UU0) vs bt (k : _ -> M A) :
-  exists vs',
+Lemma cenv_repr_vs (A : UU0) vs bt :
+  exists vs', forall (k : _ -> M A),
     cenv vs >>= (fun x => repr_btree x bt >> k x) =
     cenv vs' >>= k.
 Proof.
-move: vs k.
-elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
-- rewrite /cenv /= bindA.
+move: vs.
+elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
+- exists (rcons vs v) => k.
+  rewrite /cenv /= bindA.
   under eq_bind => vars.
     under eq_bind => x.
       rewrite bindA.
@@ -387,27 +388,25 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
       rewrite -(bindskipf (k x)) -bindA add_var_skipE.
     over.
   over.
-  exists (rcons vs v).
   rewrite !bindA.
   apply eq_bind => vars /=.
   rewrite foldr_rcons.
   elim: vs => /= [|a vs IH].
     by rewrite [RHS]bindA 2!bindretf.
   by rewrite bindA [RHS]bindA IH.
-- exists vs => /=.
+- exists vs => k /=.
   by under eq_bind do rewrite bindretf.
-- under boolp.eq_exists => vs'.
-    under eq_bind => x.
+- move: (IH1 vs) => [vs1 H1].
+  move: (IH2 vs1) => [vs2 H2].
+  exists vs2 => k.
+  under eq_bind => x.
+    rewrite bindA.
+    under eq_bind => u1.
       rewrite bindA.
-      under eq_bind => u1.
-        rewrite bindA.
-        under eq_bind do rewrite bindretf.
-      over.
+      under eq_bind do rewrite bindretf.
     over.
   over.
-  move: (IH1 vs (fun x => repr_btree x bt2 >> k x)) => [vs1 ->].
-  move: (IH2 vs1 k) => [vs2 ->].
-  by exists vs2.
+  by rewrite H1 H2.
 Qed.
 
 Lemma repr_issome m bt :
@@ -452,7 +451,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   exact/crunenvadd/crunenv.
 - constructor.
   by rewrite crunret // crunenv.
-- move: cenv_repr => H.
+- move: cenv_repr_vs => H.
   case Hu1: (crun (cenv vs >>= repr_btree^~ bt1)) => [u1|].
   case Hu2: (crun (cenv vs >>= (fun x => repr_btree x bt1 >> repr_btree x bt2))) => [u2|].
   admit.
