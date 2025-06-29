@@ -413,14 +413,21 @@ Lemma bindmskipf (A B : UU0) (m : M A) (m' : M B) :
   m >> skip >> m' = m >> m'.
 Proof. by rewrite bindA bindskipf. Qed.
 
-Lemma eq_crunenv vs : crun (cenv vs) = crun (cenv [::]).
+Definition vars_loc_spec : {r | crun (cenv [::]) = Some r}.
+have := crunenv [::].
+case: (crun _) => [r|] // _.
+by exists r.
+Defined.
+
+Definition vars_loc := proj1_sig vars_loc_spec.
+
+Lemma eq_crunenv vs : crun (cenv vs) = Some vars_loc.
 Proof.
-move: (crunenv [::]).
-case Hnew: (crun _) => [r|] // _.
-elim/last_ind: vs => //= vs n IH.
-rewrite -cats1 cenv_cat (crunbind _ _ r) //=.
+elim/last_ind: vs => //= [|vs n IH].
+  by rewrite (proj2_sig vars_loc_spec).
+rewrite -cats1 cenv_cat (crunbind _ _ vars_loc) //=.
 rewrite -bindA crunret //. 
-rewrite -(crunbind _ _ r _ (fun r => add_var_skip r n)) //.
+rewrite -(crunbind _ _ vars_loc _ (fun r => add_var_skip r n)) //.
 rewrite -crunmskip bindA.
 under eq_bind => r' do rewrite -(bindretf r' (fun=>skip)) -bindA.
 by rewrite -bindA crunmskip -(cenv_cat vs [::n]) crunenv.
@@ -482,6 +489,18 @@ Lemma cenv_repr vs bt :
   cenv vs >>= repr_btree^~ bt >> skip = cenv (vs ++ free_vars bt) >> skip.
 Proof. rewrite bindA; exact: cenv_repr_k. Qed.
 
+Lemma equiv_run_represents (m1 m2 : M uterm) bt :
+  (forall (A : UU0) (k : uterm -> M A), crun (m1 >>= k) = crun (m2 >>= k)) ->
+  represents m1 bt -> represents m2 bt.
+Proof.
+move=> Heq Hrepr.
+elim: bt/ Hrepr m2 Heq => {}m1.
+- move=> v n Hv Hn m2 Heq.
+  apply: (@RVar _ v n).
+    by rewrite -(bindmret m2) -Heq bindmret.
+  by rewrite -Heq.
+Admitted.
+
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
@@ -528,8 +547,8 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   exact/crunenvadd/crunenv.
 - constructor.
   by rewrite crunret // crunenv.
-- case: (represents_run (IH1 vs)) => u1 Hbt1 Hu1.
-  case: (represents_run (IH2 (vs ++ free_vars bt1))) => u2 Hbt2 Hu2.
+- case: (represents_run (IH1 vs)) => u1 Hbt1 _.
+  case: (represents_run (IH2 (vs ++ free_vars bt1))) => u2 Hbt2 _.
   apply: (@RNode _ u1 u2).
       move: (crunenv vs).
       case Hr: (crun _) => [r|] // _.
@@ -545,21 +564,28 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
         rewrite crunret //.
         by rewrite -(crunbind _ _ r _ (fun r => repr_btree r bt2)) // Hbt2.
       by rewrite -(crunbind _ _ r _ (fun r => repr_btree r bt2)) // Hbt2.
-
-    rewrite bindA.
-    under eq_bind => vars.
+    apply/equiv_run_represents/(IH1 (vs ++ free_vars bt1 ++ free_vars bt2)).
+    move=> a k.
+    rewrite 2!bindA [in RHS]bindA.
+    rewrite (crunbind _ _ vars_loc) ?eq_crunenv //.
+    under [in RHS]eq_bind => r.
       rewrite bindA.
-      under eq_bind => u0.
-        rewrite bindA.
-        under eq_bind do rewrite bindretf.
+      under eq_bind do rewrite bindA bindretf.
+      under eq_bind do under eq_bind do rewrite bindretf.
       over.
+    rewrite 2!cenv_repr_k -!catA.
+    admit.
+  apply/equiv_run_represents/(IH2 (vs ++ free_vars bt1)).
+  move=> a k.
+  rewrite bindA [in RHS]bindA.
+  rewrite (crunbind _ _ u2) ?eq_crunenv //.
+  under [in RHS]eq_bind => r.
+    rewrite bindA.
+    under eq_bind do rewrite bindA bindretf.
+    under eq_bind do under eq_bind do rewrite bindretf.
     over.
-    move: Hu1.
-    move: (@cenv_repr_k uterm vs bt1) => H1.
-    rewrite bindA 2!H1 => newHu1.
-    move: (@cenv_repr_k uterm (vs ++ free_vars bt1) bt2) => ->.
-    (* dead end *)
-
+  rewrite bindA.
+  by rewrite 3!cenv_repr_k.
 Abort.
 
 
