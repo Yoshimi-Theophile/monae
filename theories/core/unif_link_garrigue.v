@@ -572,6 +572,20 @@ admit.
 *)
 Admitted.
 
+(*
+Lemma repr_btree_delay_k2 A vs1 vs2 bt (k : _ -> _ -> M A) :
+  crun (cenv vs1 >>= fun r => repr_btree r bt >>= fun u => add_vars vs2 r >>= k u)
+  = crun (cenv (vs1 ++ free_vars bt ++ vs2) >>= (fun x => repr_btree x bt >>= k^~ x)).
+Proof.
+elim: bt vs1 vs2 k => [n|n|bt1 IH1 bt2 IH2] vs1 vs2 k /=.
+- admit.
+- under [in RHS]eq_bind do rewrite bindretf.
+  under eq_bind do rewrite bindretf.
+  by rewrite -bindA -cenv_cat.
+- admit.
+Abort.
+*)
+
 Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
