@@ -438,18 +438,12 @@ Lemma rcons_rightapp A (l : list A) (a : A) :
   rcons l a = l ++ [:: a].
 Proof. by elim: l => //= a' l ->. Qed.
 
-Lemma cenv_repr_exk (A : UU0) vs bt :
-  exists vs',
-    vs' = vs ++ free_vars bt /\
-    forall (k : _ -> M A),
+Lemma cenv_repr_k (A : UU0) vs bt (k : _ -> M A) :
     cenv vs >>= (fun x => repr_btree x bt >> k x) =
-    cenv vs' >>= k.
+    cenv (vs ++ free_vars bt) >>= k.
 Proof.
-move: vs.
-elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
-- exists (rcons vs v); split => [|k].
-    by rewrite /free_vars rcons_rightapp.
-  rewrite /cenv /= bindA.
+elim: bt vs k => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
+- rewrite /cenv /= bindA.
   under eq_bind => vars.
     under eq_bind => x.
       rewrite bindA.
@@ -459,36 +453,21 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
   over.
   rewrite !bindA.
   apply eq_bind => vars /=.
-  rewrite foldr_rcons.
+  rewrite cats1 foldr_rcons.
   elim: vs => /= [|a vs IH].
     by rewrite [RHS]bindA 2!bindretf.
   by rewrite bindA [RHS]bindA IH.
-- exists vs => /=; split => [|k].
-    by rewrite cats0.
-  by under eq_bind do rewrite bindretf.
-- move: (IH1 vs) => [vs1 [Hv1 H1]].
-  move: (IH2 vs1) => [vs2 [Hv2 H2]].
-  exists vs2; split => [|k].
-    by rewrite Hv2 Hv1 catA.
-  under eq_bind => x.
+- under eq_bind do rewrite bindretf.
+  by rewrite cats0.
+- under eq_bind => x.
     rewrite bindA.
     under eq_bind => u1.
       rewrite bindA.
       under eq_bind do rewrite bindretf.
     over.
   over.
-  by rewrite H1 H2.
+  by rewrite IH1 IH2 catA.
 Qed.
-
-
-Lemma cenv_repr_k (A : UU0) vs bt (k : _ -> M A):
-    cenv vs >>= (fun x => repr_btree x bt >> k x) =
-    cenv (vs ++ free_vars bt) >>= k.
-Proof. by move: (@cenv_repr_exk A vs bt) => [? [<- ?]]. Qed.
-
-Lemma cenv_repr vs bt :
-  cenv vs >>= repr_btree^~ bt >> skip = cenv (vs ++ free_vars bt) >> skip.
-Proof. rewrite bindA; exact: cenv_repr_k. Qed.
 
 Lemma equiv_run_represents (m1 m2 : M uterm) bt :
   (forall (A : UU0) (k : uterm -> M A), crun (m1 >>= k) = crun (m2 >>= k)) ->
@@ -581,10 +560,10 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
       rewrite -{1}/r' -(crunbind _ _ r' _ (fun r => repr_btree r bt1 >>= _)) //.
       rewrite -bindA {r'}.
       rewrite (crunbind _ _ u1) //.
-      rewrite -bindmskipf cenv_repr.
+      rewrite bindA cenv_repr_k.
       have Hr' : crun (cenv (vs ++ free_vars bt1)) = Some r.
         by rewrite -Hr !eq_crunenv.
-      rewrite bindmskipf -bindA (crunbind _ _ u2) //.
+      rewrite -bindA (crunbind _ _ u2) //.
         rewrite crunret //.
         by rewrite -(crunbind _ _ r _ (fun r => repr_btree r bt2)) // Hbt2.
       by rewrite -(crunbind _ _ r _ (fun r => repr_btree r bt2)) // Hbt2.
