@@ -468,10 +468,6 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
   by rewrite H1 H2 catA.
 Qed.
 
-Lemma cenv_repr vs bt :
-  cenv vs >>= repr_btree^~ bt >> skip = cenv (vs ++ free_vars bt) >> skip.
-Proof. rewrite bindA; exact: cenv_repr_k. Qed.
-
 Lemma equiv_run_represents (m1 m2 : M uterm) bt :
   (forall (A : UU0) (k : uterm -> M A), crun (m1 >>= k) = crun (m2 >>= k)) ->
   represents m1 bt -> represents m2 bt.
@@ -624,10 +620,10 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
       rewrite -{1}/r' -(crunbind _ _ r' _ (fun r => repr_btree r bt1 >>= _)) //.
       rewrite -bindA {r'}.
       rewrite (crunbind _ _ u1) //.
-      rewrite -bindmskipf cenv_repr.
+      rewrite bindA cenv_repr_k.
       have Hr' : crun (cenv (vs ++ free_vars bt1)) = Some r.
         by rewrite -Hr !eq_crunenv.
-      rewrite bindmskipf -bindA (crunbind _ _ u2) //.
+      rewrite -bindA (crunbind _ _ u2) //.
         rewrite crunret //.
         by rewrite -(crunbind _ _ r _ (fun r => repr_btree r bt2)) // Hbt2.
       by rewrite -(crunbind _ _ r _ (fun r => repr_btree r bt2)) // Hbt2.
