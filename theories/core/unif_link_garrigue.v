@@ -434,22 +434,13 @@ under eq_bind => r' do rewrite -(bindretf r' (fun=>skip)) -bindA.
 by rewrite -bindA crunmskip -(cenv_cat vs [::n]) crunenv.
 Qed.
 
-Lemma rcons_rightapp A (l : list A) (a : A) :
-  rcons l a = l ++ [:: a].
-Proof. by elim: l => //= a' l ->. Qed.
-
-Lemma cenv_repr_exk (A : UU0) vs bt :
-  exists vs',
-    vs' = vs ++ free_vars bt /\
-    forall (k : _ -> M A),
+Lemma cenv_repr_k (A : UU0) vs bt (k : _ -> M A):
     cenv vs >>= (fun x => repr_btree x bt >> k x) =
-    cenv vs' >>= k.
+    cenv (vs ++ free_vars bt) >>= k.
 Proof.
-move: vs.
-elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
-- exists (rcons vs v); split => [|k].
-    by rewrite /free_vars rcons_rightapp.
-  rewrite /cenv /= bindA.
+move: vs k.
+elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
+- rewrite /cenv /= bindA.
   under eq_bind => vars.
     under eq_bind => x.
       rewrite bindA.
@@ -459,17 +450,14 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
   over.
   rewrite !bindA.
   apply eq_bind => vars /=.
-  rewrite foldr_rcons.
+  rewrite cats1 foldr_rcons.
   elim: vs => /= [|a vs IH].
     by rewrite [RHS]bindA 2!bindretf.
   by rewrite bindA [RHS]bindA IH.
-- exists vs => /=; split => [|k].
-    by rewrite cats0.
-  by under eq_bind do rewrite bindretf.
-- move: (IH1 vs) => [vs1 [Hv1 H1]].
-  move: (IH2 vs1) => [vs2 [Hv2 H2]].
-  exists vs2; split => [|k].
-    by rewrite Hv2 Hv1 catA.
+- under eq_bind do rewrite bindretf.
+  by rewrite cats0.
+- move: (IH1 vs) => H1.
+  move: (IH2 (vs ++ free_vars bt1)) => H2.
   under eq_bind => x.
     rewrite bindA.
     under eq_bind => u1.
@@ -477,14 +465,8 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
       under eq_bind do rewrite bindretf.
     over.
   over.
-  by rewrite H1 H2.
+  by rewrite H1 H2 catA.
 Qed.
-
-
-Lemma cenv_repr_k (A : UU0) vs bt (k : _ -> M A):
-    cenv vs >>= (fun x => repr_btree x bt >> k x) =
-    cenv (vs ++ free_vars bt) >>= k.
-Proof. by move: (@cenv_repr_exk A vs bt) => [? [<- ?]]. Qed.
 
 Lemma cenv_repr vs bt :
   cenv vs >>= repr_btree^~ bt >> skip = cenv (vs ++ free_vars bt) >> skip.
