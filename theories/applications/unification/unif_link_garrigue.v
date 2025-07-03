@@ -498,8 +498,10 @@ Lemma repr_btree_delay_k A vs1 vs2 bt (k : _ -> M A) :
   crun (cenv vs1 >>= fun r => repr_btree r bt >>= fun u => add_vars vs2 r >> k u)
   = crun (cenv (vs1 ++ free_vars bt ++ vs2) >>= repr_btree ^~ bt >>= k).
 Proof.
-elim: bt vs1 vs2 k => [n|n|bt1 IH1 bt2 IH2] vs1 vs2 k /=.
-- rewrite [in RHS]bindA.
+elim: bt vs1 vs2 k => [n|n|bt1 IH1 bt2 IH2] vs1 vs2 k.
+- rewrite catA 2!cenv_cat {2}/add_vars /=.
+  (*
+  rewrite [in RHS]bindA.
   under eq_bind => r.
     rewrite bindA.
     under eq_bind do rewrite bindretf.
@@ -508,10 +510,12 @@ elim: bt vs1 vs2 k => [n|n|bt1 IH1 bt2 IH2] vs1 vs2 k /=.
     rewrite bindA.
     under eq_bind do rewrite bindretf.
   over.
+  *)
   admit.
 - under eq_bind do rewrite bindretf.
-  by rewrite [in RHS]bindA bindretf -[in LHS]bindA -cenv_cat.
-- rewrite [in RHS]bindA.
+  by rewrite /= [in RHS]bindA bindretf -[in LHS]bindA -cenv_cat.
+- rewrite /=.
+  rewrite [in RHS]bindA.
   under eq_bind => r.
     rewrite bindA.
     under eq_bind => u0.
@@ -526,15 +530,12 @@ elim: bt vs1 vs2 k => [n|n|bt1 IH1 bt2 IH2] vs1 vs2 k /=.
       under eq_bind do rewrite bindretf.
     over.
   over.
-
 admit.
-
 (*
   rewrite [RHS](crunbind _ _ vars_loc) ?eq_crunenv //.
   rewrite !catA cenv_cat [in RHS]bindA.
   rewrite -cenv_repr_k IH2 -!catA [in RHS]bindA.
 *)
-
 (*
   rewrite (crunbind _ _ vars_loc) ?eq_crunenv //.
   rewrite [RHS](crunbind _ _ vars_loc) ?eq_crunenv //.
@@ -546,6 +547,8 @@ admit.
       ) ?eq_crunenv //.
 *)
 Admitted.
+
+Search maxn.
 
 (*
 Lemma repr_btree_delay_k2 A vs1 vs2 bt (k : _ -> _ -> M A) :
