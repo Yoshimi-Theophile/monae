@@ -1202,7 +1202,7 @@ Arguments crun {ml_type N locT s} [A].
 
 HB.mixin Record isMonadTypedStoreFail (MLU : ML_universe) (N : monad)
     (locT : eqType) (M : UU0 -> UU0)
-    of MonadTypedStore MLU N locT M & MonadFail M := {
+    of MonadTypedStore MLU N locT M & MonadFailR0 M := {
   cnewputC :
     forall T T' (r : loc locT T) (s : coq_type N T) (s' : coq_type N T') A
            (k : loc locT T' -> M A),
