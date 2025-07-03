@@ -2225,18 +2225,23 @@ apply/boolp.funext => e /=.
 have [u Hr|T1 s1 Hr Ts|Hr] := ntherrorP e r.
 - rewrite bind_cnew [RHS]MS_bindE (Some_cputE _ Hr).
   rewrite neq_ltn (nth_error_size Hr) guardT bindskipf.
-  rewrite MS_bindE.
-  rewrite (Some_cputE _ (nth_error_rcons_some _ Hr)).
-  rewrite !bindretf /uncurry bind_cnew.
-  rewrite /fresh_loc size_set_nth.
+  rewrite MS_bindE (Some_cputE _ (nth_error_rcons_some _ Hr)).
+  rewrite !bindretf /uncurry bind_cnew /fresh_loc size_set_nth.
   have /maxn_idPr -> := nth_error_size Hr.
   by rewrite (nth_error_set_nth_rcons _ _ _ Hr).
-- rewrite [RHS]MS_bindE (nocoerce_cput _ Hr) //.
-  rewrite bind_cnew.
-  admit.
-- rewrite [RHS]MS_bindE (None_cput _ Hr) //.
-  rewrite bind_cnew.
-Abort.
+- rewrite [RHS]MS_bindE (nocoerce_cput _ Hr) // bind_cnew.
+  case/boolP: (_ == _) => //=.
+  by rewrite bindskipf MS_bindE (nocoerce_cput _ (nth_error_rcons_some _ Hr)).
+- rewrite [RHS]MS_bindE (None_cput _ Hr) // bind_cnew.
+  case/boolP: (_ == _) => //= Hloc.
+  rewrite bindskipf MS_bindE.
+  have Hr' : nth_error (extend_env s' e) (loc_id r) = None.
+    apply/List.nth_error_None/leP.
+    rewrite /extend_env -cats1 List.length_app /= -addnE addn1.
+    rewrite ltn_neqAle eq_sym Hloc /=.
+    exact/leP/List.nth_error_None.
+  by rewrite (None_cput _ Hr').
+Qed.
 
 Let cputnewC T T' (r : loc T) (s : coq_type T) (s' : coq_type T') A
     (k : loc T' -> M A) :
@@ -2310,12 +2315,14 @@ by case Hm: (m _) => [|[]].
 Qed.
 
 HB.instance Definition isMonadTypedStoreModel :=
-  isMonadTypedStore.Build ml_type N locT_nat M cnewget cnewput cgetput cgetputskip
-    cgetget cputget cputput cgetC cgetnewD cgetnewE cgetputC cputC
-    cputgetC cputnewC.
+  isMonadTypedStore.Build ml_type N locT_nat M cnewget cnewput cgetput
+    cgetputskip cgetget cputget cputput cgetC cgetnewD cgetnewE cgetputC
+    cputC cputgetC cputnewC.
 HB.instance Definition isMonadTypedStoreRunModel :=
   isMonadTypedStoreRun.Build ml_type N locT_nat M
     crunret crunbind crunskip crunnew crunnewgetC crungetput crunmskip.
+HB.instance Definition isMonadTypedStoreFailModel :=
+  isMonadTypedStoreFail.Build ml_type N locT_nat M cnewputC.
 
 End mkbind.
 End ModelTypedStoreRun.

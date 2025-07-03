@@ -56,6 +56,15 @@ Local Notation Env := (@Env MLU).
 Definition acto : UU0 -> UU0 := MS Env option_monad.
 Local Notation M := acto.
 
+
+Let cfail A : M A := liftS fail.
+
+Let cbindfailf : BindLaws.left_zero (@bind M) cfail.
+Proof. exact: bindLfailf. Qed.
+
+HB.instance Definition _ := Monad.on M.
+HB.instance Definition _ := isMonadFail.Build M cbindfailf.
+
 Local Notation coq_type := (@coq_type MLU M).
 
 Local Notation val_nonundef := (val_nonempty MLU).
@@ -480,6 +489,43 @@ have [u Hr1|T1' s1' Hr1 T1s'|Hr1] := ntherrorP e r1.
   + by rewrite None_cget.
 Qed.
 
+Let cnewputC T T' (r : loc T) (s : coq_type T) (s' : coq_type T') A
+    (k : loc T' -> M A) :
+  cnew s' >>=
+    (fun r' => guard (loc_id r != loc_id r') >> (cput r s >> k r')) =
+  cput r s >> (cnew s' >>= k).
+Proof.
+apply/boolp.funext => e /=.
+have [u Hr|T1 s1 Hr Ts|Hr] := ntherrorP e r.
+- rewrite bind_cnew [RHS]MS_bindE (Some_cputE _ Hr).
+  rewrite neq_ltn (nth_error_size Hr) guardT bindskipf.
+  have Hr' : nth_error (ofEnv (extend_env s' e)) (loc_id r) =
+               Some {| bind_type := T; bind_val := u |}.
+    exact: nth_error_rcons_some _ Hr.
+  rewrite MS_bindE (Some_cputE _ Hr').
+  rewrite !bindretf /uncurry bind_cnew.
+  rewrite /fresh_loc /sizeEnv size_set_nth.
+  have /maxn_idPr -> := nth_error_size Hr.
+  by rewrite (nth_error_set_nth_rcons _ _ _ Hr).
+- rewrite [RHS]MS_bindE (nocoerce_cput _ Hr) //.
+  rewrite bind_cnew.
+  case/boolP: (_ == _) => //=.
+  rewrite bindskipf MS_bindE.
+  have Hr' : nth_error (ofEnv (extend_env s' e)) (loc_id r) =
+               Some {| bind_type := T1; bind_val := s1 |}.
+    exact: nth_error_rcons_some _ Hr.
+  by rewrite (nocoerce_cput _ Hr').
+- rewrite [RHS]MS_bindE (None_cput _ Hr) // bind_cnew.
+  case/boolP: (_ == _) => //= Hloc.
+  rewrite bindskipf MS_bindE.
+  have Hr' : nth_error (ofEnv (extend_env s' e)) (loc_id r) = None.
+    apply/List.nth_error_None/leP.
+    rewrite /extend_env -cats1 List.length_app /= -addnE addn1.
+    rewrite ltn_neqAle eq_sym Hloc /=.
+    exact/leP/List.nth_error_None.
+  by rewrite (None_cput _ Hr').
+Qed.
+
 Let cputnewC T T' (r : loc T) (s : coq_type T) (s' : coq_type T') A
     (k : loc T' -> M A) :
   cget r >> (cnew s' >>= fun r' => cput r s >> k r') =
@@ -552,7 +598,6 @@ rewrite /crun /= !bindE /= /bindS !MS_mapE /= !fmapE /= !bindA.
 by case Hm: (m _) => [|[]].
 Qed.
 
-HB.instance Definition _ := Monad.on M.
 HB.instance Definition isMonadTypedStoreModel :=
   isMonadTypedStore.Build _ M _ M cnewget cnewput cgetput cgetputskip
     cgetget cputget cputput cgetC cgetnewD cgetnewE cgetputC cputC
@@ -560,6 +605,8 @@ HB.instance Definition isMonadTypedStoreModel :=
 HB.instance Definition isMonadTypedStoreRunModel :=
   isMonadTypedStoreRun.Build _ M _ M
     crunret crunbind crunskip crunnew crunnewgetC crungetput crunmskip.
+HB.instance Definition isMonadTypedStoreFailModel :=
+  isMonadTypedStoreFail.Build ml_type M locT_nat M cnewputC.
 
 (* To restart computations *)
 Definition W (A : UU0) : UU0 := option_monad (A * Env).
