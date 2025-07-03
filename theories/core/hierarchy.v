@@ -1093,6 +1093,8 @@ HB.structure Definition MonadArray (S : UU0) (I : eqType) :=
 HB.structure Definition MonadPlusArray (S : UU0) (I : eqType) :=
   { M of MonadPlus M & isMonadArray S I M }.
 
+(* Typed store monad *)
+
 Variant loc (ml_type : Type) (locT : eqType) : ml_type -> Type :=
   mkloc T : locT -> loc locT T.
 Definition loc_id (ml_type : Type) (locT : eqType) {T : ml_type} (l : loc locT T) : locT :=
@@ -1197,6 +1199,27 @@ HB.structure Definition MonadTypedStoreRun (ml_type : ML_universe) (N : monad) (
   { M of isMonadTypedStoreRun ml_type N locT M & }.
 
 Arguments crun {ml_type N locT s} [A].
+
+HB.mixin Record isMonadTypedStoreFail (MLU : ML_universe) (N : monad)
+    (locT : eqType) (M : UU0 -> UU0)
+    of MonadTypedStore MLU N locT M & MonadFail M := {
+  cputnewC :
+    forall T T' (r : loc locT T) (s : coq_type N T) (s' : coq_type N T') A
+           (k : loc locT T' -> M A),
+      cnew T' s' >>=
+        (fun r' => guard (loc_id r != loc_id r') >> (cput r s >> k r'))
+      = cput r s >> (cnew T' s' >>= k) ;
+}.
+
+#[short(type=typedStoreFailMonad)]
+HB.structure Definition MonadTypedStoreFail (ml_type : ML_universe) (N : monad) (locT : eqType) :=
+  { M of isMonadTypedStoreFail ml_type N locT M & }.
+
+#[short(type=typedStoreFailRunMonad)]
+HB.structure Definition MonadTypedStoreFailRun MLU N locT :=
+ {M of isMonadTypedStoreRun MLU N locT M & isMonadTypedStoreFail MLU N locT M }.
+
+(* Trace monads *)
 
 HB.mixin Record isMonadTrace (T : UU0) (M : UU0 -> UU0) of Monad M :=
  { mark : T -> M unit }.
