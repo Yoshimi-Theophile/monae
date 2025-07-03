@@ -201,8 +201,9 @@ Definition cputvars :=
 Definition cchkvars : M unit :=
   foldM skip [seq if o is Some v then cchk v else skip | o <- vars].
 
+Definition loc_id_vars := pmap (omap (@loc_id _ nat ml_uvar)) vars.
 Definition vars_loc_uniq (r : loc (ml_list (ml_option (ml_ref ml_uvar)))) :=
-  uniq (loc_id r :: pmap (omap (@loc_id _ nat ml_uvar)) vars).
+  uniq (loc_id r :: loc_id_vars).
 
 Definition cputenv (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
   : M unit :=
@@ -271,7 +272,7 @@ case: v => [v|].
 by rewrite bindmskip bindskipf.
 Qed.
 
-Lemma cnew_putvarsC (T : ml_type) (A : UU0) vars
+Lemma cchknewputvars (T : ml_type) (A : UU0) vars
       (x : coq_type N T) (k : loc T -> M A) :
   (cchkvars vars >> do rx <- cnew T x; cputvars vars >> k rx)
   = cputvars vars >> (cnew T x >>= k).
@@ -309,6 +310,48 @@ apply: eq_bind => _.
 apply: eq_bind => r.
 rewrite -!map_drop (drop_nth 0 (n:=n)) /=; last by rewrite size_iota.
 by rewrite {2}/put_nth_var nth_iota // add0n Hnth bindA.
+Qed.
+
+Lemma cputvarsnewC (T : ml_type) (A : UU0) vars
+      (x : coq_type N T) (k : loc T -> M A) :
+  (do rx <- cnew T x;
+   guard (loc_id rx \notin loc_id_vars vars) >> cputvars vars >> k rx)
+  = cputvars vars >> (cnew T x >>= k).
+Proof.
+symmetry.
+rewrite {1}/cputvars.
+pose n := size vars.
+rewrite -{1}/n.
+under [cnew T x >>= _]eq_bind => r.
+  rewrite -(bindskipf (k r)).
+  have -> : skip = guard (loc_id r \notin loc_id_vars (drop n vars)) >>
+                foldM skip (drop n (mkseq (put_nth_var vars) (size vars))).
+    by rewrite drop_size bindskipf -map_drop drop_iota subnn.
+  over.
+have Hn : n <= size vars by [].
+elim: n Hn k => [|n IH] Hn k.
+  by rewrite /= !drop0 bindskipf.
+rewrite mkseqS foldr_rcons foldr_bindA bindmskip.
+rewrite bindA -IH 1?ltnW //.
+apply: eq_bind => _.
+rewrite {1}/put_nth_var.
+case Hnth: nth => [v|]; last first.
+  rewrite bindskipf.
+  apply: eq_bind => r.
+  rewrite -!map_drop (drop_nth 0 (n:=n)); last by rewrite size_iota.
+  rewrite nth_iota // add0n /= /put_nth_var Hnth bindskipf.
+  by rewrite {2}/loc_id_vars (drop_nth None (n:=n)) // Hnth.
+rewrite -cnewputC.
+apply: eq_bind => r.
+rewrite {2}/loc_id_vars (drop_nth None (n:=n)) // Hnth /= in_cons negb_or.
+rewrite eq_sym.
+case/boolP: (_ == _) => Heq /=.
+  by rewrite guardF !bindfailf.
+rewrite guardT bindskipf /loc_id_vars.
+case/boolP: (loc_id r \in _) => Hin /=.
+  by rewrite guardF !bindfailf bindmfail.
+rewrite guardT -!map_drop (drop_nth 0 (n:=n)); last by rewrite size_iota.
+by rewrite nth_iota // add0n /= /put_nth_var Hnth !bindskipf !bindA.
 Qed.
 
 Lemma cputenv_add_var (A : UU0) (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
