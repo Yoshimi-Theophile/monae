@@ -85,11 +85,8 @@ Fixpoint coq_type_nat (T : ml_type) : Type :=
   end.
 End with_monad.
 
-HB.instance Definition _ := @isML_universe.Build ml_type coq_type_nat ml_unit val_nonempty.
-
-#[short(type=typedStoreFailRunMonad)]
-HB.structure Definition MonadTypedStoreFailRun S S0 op :=
-  {M of isMonadTypedStoreRun S S0 op M & MonadFail M }.
+HB.instance Definition _ :=
+  @isML_universe.Build ml_type coq_type_nat ml_unit val_nonempty.
 
 Definition typedStoreFailRunMonad (N : monad) :=
   typedStoreFailRunMonad ml_type N nat.
@@ -752,7 +749,7 @@ Definition represents3 (m : M uterm) (bt : btree) :=
   exists h,
     m = m >>= fun u => repr_uterm h u >>= fun x => guard (x == bt) >> Ret u.
 
-Lemma repr_btree_ok vs bt : represents' (cenv vs >>= repr_btree^~ bt) bt.
+Lemma repr_btree_ok' vs bt : represents' (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
 - exists 1.
@@ -816,7 +813,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
 - case: (IH1 vs) => h1.
 Abort.
 
-Lemma repr_btree_ok vs bt :
+Lemma repr_btree_oku vs bt :
   exists h vs',
     cenv vs >>= repr_btree^~ bt >>= repr_uterm h = cenv (vs++vs') >> Ret bt.
 Proof.

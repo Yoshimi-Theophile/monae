@@ -100,10 +100,6 @@ End with_monad.
 
 HB.instance Definition _ := @isML_universe.Build ml_type coq_type_nat ml_unit val_nonempty.
 
-#[short(type=typedStoreFailRunMonad)]
-HB.structure Definition MonadTypedStoreFailRun S S0 op :=
-  {M of isMonadTypedStoreRun S S0 op M & MonadFail M }.
-
 Definition typedStoreFailRunMonad (N : monad) :=
   typedStoreFailRunMonad ml_type N nat.
 
