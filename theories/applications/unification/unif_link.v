@@ -115,22 +115,6 @@ Local Open Scope do_notation.
 
 Section Definitions.
 
-(*
-Inductive uterm : Type :=
-| uLink : loc ml_uvar -> uterm
-| uInt : nat -> uterm
-| uNode : uterm -> uterm -> uterm.
-
-Inductive uvar : Type :=
-| uVar : nat -> uvar
-| uTerm : uterm -> uvar.
-*)
-
-(*
-Definition uget (v : loc ml_uvar) : M uvar := cget v.
-Definition uset (v : loc ml_uvar) : uvar -> M unit := cput v.
-*)
-
 Definition constr_list : Type := list (uterm * uterm)%type.
 
 End Definitions.
@@ -372,15 +356,13 @@ Lemma matchifsomebool (A B : UU0) (a : option A) (m m' : M B) (f : A -> M B) :
   if isSome a then (if a is Some a then f a else m') else m.
 Proof. by case: a. Qed.
 
-Lemma cenv_repr_vs (A : UU0) vs bt :
-  exists vs', forall (k : _ -> M A),
+Lemma cenv_repr_k (A : UU0) vs bt (k : _ -> M A):
     cenv vs >>= (fun x => repr_btree x bt >> k x) =
-    cenv vs' >>= k.
+    cenv (vs ++ free_vars bt) >>= k.
 Proof.
-move: vs.
-elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
-- exists (rcons vs v) => k.
-  rewrite /cenv /= bindA.
+move: vs k.
+elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs k.
+- rewrite /cenv /= bindA.
   under eq_bind => vars.
     under eq_bind => x.
       rewrite bindA.
@@ -390,15 +372,14 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
   over.
   rewrite !bindA.
   apply eq_bind => vars /=.
-  rewrite foldr_rcons.
+  rewrite cats1 foldr_rcons.
   elim: vs => /= [|a vs IH].
     by rewrite [RHS]bindA 2!bindretf.
   by rewrite bindA [RHS]bindA IH.
-- exists vs => k /=.
-  by under eq_bind do rewrite bindretf.
-- move: (IH1 vs) => [vs1 H1].
-  move: (IH2 vs1) => [vs2 H2].
-  exists vs2 => k.
+- under eq_bind do rewrite bindretf.
+  by rewrite cats0.
+- move: (IH1 vs) => H1.
+  move: (IH2 (vs ++ free_vars bt1)) => H2.
   under eq_bind => x.
     rewrite bindA.
     under eq_bind => u1.
@@ -406,7 +387,7 @@ elim: bt => [v | n | bt1 IH1 bt2 IH2 /=] vs.
       under eq_bind do rewrite bindretf.
     over.
   over.
-  by rewrite H1 H2.
+  by rewrite H1 H2 catA.
 Qed.
 
 Lemma repr_issome m bt :
@@ -451,7 +432,7 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   exact/crunenvadd/crunenv.
 - constructor.
   by rewrite crunret // crunenv.
-- move: cenv_repr_vs => H.
+- move: cenv_repr_k => H.
   case Hu1: (crun (cenv vs >>= repr_btree^~ bt1)) => [u1|].
   case Hu2: (crun (cenv vs >>= (fun x => repr_btree x bt1 >> repr_btree x bt2))) => [u2|].
   admit.
