@@ -62,8 +62,12 @@ Let cfail A : M A := liftS fail.
 Let cbindfailf : BindLaws.left_zero (@bind M) cfail.
 Proof. exact: bindLfailf. Qed.
 
+Let cbindmfail : BindLaws.right_zero (@bind M) cfail.
+Proof. exact: bindmLfail. Qed.
+
 HB.instance Definition _ := Monad.on M.
 HB.instance Definition _ := isMonadFail.Build M cbindfailf.
+HB.instance Definition _ := isMonadFailR0.Build M cbindmfail.
 
 Local Notation coq_type := (@coq_type MLU M).
 
