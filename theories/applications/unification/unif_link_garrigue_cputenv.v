@@ -210,12 +210,17 @@ Definition cputenv (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
   guard (vars_loc_uniq r) >> cput r vars >> cputvars.
 End vars_defs.
 
-Lemma cputgetC T1 T2 (r1 : loc T1) (r2 : loc T2)
-  (s1 : coq_type N T1) (A : UU0) (k : coq_type N T2 -> M A) :
+Lemma cputgetC T1 T2 (r1 : loc T1) (r2 : loc T2) s1
+      (A : UU0) (k : coq_type N T2 -> M A) :
   loc_id r1 != loc_id r2 ->
   cput r1 s1 >> (cget r2 >>= k) =
   cget r2 >>= (fun v : coq_type N T2 => cput r1 s1 >> k v).
 Proof. by move=> *; rewrite -bindA cputgetC. Qed.
+
+Lemma cputC T1 T2 (r1 : loc T1) (r2 : loc T2) s1 s2 :
+  loc_id r1 != loc_id r2 \/ JMeq.JMeq s1 s2 ->
+  cput r1 s1 >> cput r2 s2 = cput r2 s2 >> cput r1 s1 :> M _.
+Proof. apply: cputC; exact unit. Qed.
 
 Lemma foldr_bindA A B (s : seq (M A)) (m : M B) :
   foldM m s = foldM skip s >> m.
@@ -225,9 +230,17 @@ elim: s => /= [|m1 s IH].
 by rewrite IH bindA.
 Qed.
 
-Lemma cput_putvarsC (r : loc (ml_list (ml_option (ml_ref ml_uvar)))) vars :
-  vars_loc_uniq vars r ->
-  cput r vars >> cputvars vars = cputvars vars >> cput r vars.
+Lemma mem_loc_id_vars r vars :
+  Some r \in vars -> loc_id r \in loc_id_vars vars.
+Proof. by rewrite mem_pmap => /(map_f (omap (@loc_id _ _ ml_uvar))). Qed.
+
+Lemma loc_id_vars_cat s1 s2 :
+  loc_id_vars (s1 ++ s2) = loc_id_vars s1 ++ loc_id_vars s2.
+Proof. exact: pmap_cat. Qed.
+
+Lemma cput_putvarsC T r x vars :
+  loc_id r \notin loc_id_vars vars ->
+  cput (T:=T) r x >> cputvars vars = cputvars vars >> cput r x.
 Proof.
 rewrite /cputvars.
 set n := size vars.
@@ -240,13 +253,9 @@ rewrite !bindA.
 apply: eq_bind => _.
 rewrite /put_nth_var.
 case Hnth: nth => [v|].
-  rewrite cputC //. exact unit.
-  move/andP: Hne => [] Hne _; left.
+  rewrite cputC //; left.
   apply: contra Hne => /eqP ->.
-  rewrite mem_pmap.
-  rewrite -[Some (loc_id v)]/(omap (@loc_id _ nat ml_uvar) (Some v)).
-  apply: map_f.
-  by rewrite -Hnth mem_nth.
+  by rewrite mem_loc_id_vars // -Hnth mem_nth.
 by rewrite bindskipf bindmskip.
 Qed.
 
@@ -354,6 +363,91 @@ rewrite guardT -!map_drop (drop_nth 0 (n:=n)); last by rewrite size_iota.
 by rewrite nth_iota // add0n /= /put_nth_var Hnth !bindskipf !bindA.
 Qed.
 
+Lemma guardC b (m : M unit) : guard b >> m = m >> guard b.
+Proof.
+by case: b; rewrite (guardT,guardF) !(bindskipf,bindmskip,bindfailf,bindmfail).
+Qed.
+
+Lemma set_nth_cat A a0 s1 s2 n (a : A) :
+  set_nth a0 (s1++s2) n a =
+  if n < size s1 then set_nth a0 s1 n a ++ s2
+                 else s1 ++ set_nth a0 s2 (n-size s1) a.
+Proof. by elim: n s1 => [|n IH] [|b s1] //=; rewrite ltnS IH; case: ifPn. Qed.
+
+Lemma cputvars_rcons vars v :
+  cputvars (rcons vars v) =
+  cputvars vars >> if v is Some r then cput r (uVar (size vars)) else skip.
+Proof.
+rewrite /cputvars size_rcons -addn1 /mkseq iotaD /= add0n map_cat /=.
+rewrite foldr_cat /= foldr_bindA bindmskip.
+rewrite {2}/put_nth_var nth_rcons ltnn eqxx.
+congr (foldM _ _ >> _).
+apply/eq_in_map => i.
+rewrite mem_iota add0n leq0n /put_nth_var /= => Hi.
+by rewrite !nth_rcons Hi.
+Qed.
+
+Lemma cputvars_add_var vars n (rx : loc ml_uvar) :
+  ~~ nth None vars n ->
+  loc_id rx \notin loc_id_vars vars ->
+  cputvars vars >> cput rx (uVar n) = cputvars (set_nth None vars n (Some rx)).
+Proof.
+case: (ltnP n (size vars)); last first.
+  move=> Hn Hnth Hu.
+  rewrite set_nthE ltnNge Hn /= /cputvars.
+  have Hsz : size (vars ++ ncons (n - size vars) None [:: Some rx]) = n.+1.
+    by rewrite size_cat size_ncons addnA subnKC // addn1.
+  rewrite Hsz mkseqS foldr_rcons [in RHS]foldr_bindA.
+  rewrite bindmskip {3}/put_nth_var.
+  rewrite nth_cat ltnNge Hn /= nth_ncons ltnn subnn /=.
+  rewrite -{3}(subnKC Hn) /mkseq iotaD map_cat foldr_cat.
+  congr (foldM _ _ >> _).
+    rewrite add0n.
+    set i := n - size vars.
+    rewrite {1}/i.
+    have : i <= n - size vars by [].
+    elim/ltn_ind: i => -[] // i IH Hi.
+    rewrite -addn1 iotaD /= map_cat foldr_cat foldr_bindA /= -IH // 1?ltnW //.
+    rewrite /put_nth_var nth_cat ltnNge leq_addr /= addKn.
+    by rewrite nth_ncons Hi !bindskipf.
+  apply/eq_in_map => i.
+  rewrite mem_iota add0n leq0n /put_nth_var /= => Hi.
+  by rewrite nth_cat Hi.
+elim/last_ind: vars => [|vars v IH] // Hn Hnth Hu.
+move: Hn.
+rewrite size_rcons ltnS leq_eqVlt => /orP[/eqP|] Hn.
+  rewrite {2}Hn set_nth_rcons !cputvars_rcons.
+  move: Hnth.
+  rewrite Hn !nth_rcons ltnn eqxx.
+  destruct v => //.
+  by rewrite bindmskip.
+rewrite -cats1 set_nth_cat Hn !cats1 !cputvars_rcons.
+rewrite -IH //; first last.
+- by move: Hu; rewrite /loc_id_vars -cats1 pmap_cat mem_cat negb_or => /andP[].
+- by rewrite nth_rcons Hn in Hnth.
+destruct v as [r|].
+  rewrite !bindA size_set_nth.
+  move/maxn_idPr: Hn => ->.
+  rewrite cputC //; try exact unit.
+  left.
+  move: Hu; rewrite /loc_id_vars -cats1 pmap_cat mem_cat negb_or => /andP[] /=.
+  by rewrite in_cons orbF eq_sym.
+by rewrite !bindmskip.
+Qed.
+
+Lemma loc_id_vars_ncons n s : loc_id_vars (ncons n None s) = loc_id_vars s.
+Proof. by elim: n. Qed.
+
+Lemma cputenv_cget r vars :
+  cputenv vars r >> cget r = cputenv vars r >> Ret vars.
+Proof.
+rewrite !bindA.
+apply: bind_ext_guard.
+rewrite /vars_loc_uniq /= => /andP[] Hu _.
+rewrite -bindA -[RHS]bindA cput_putvarsC // !bindA.
+by rewrite -(bindmret (cget r)) cputget.
+Qed.
+
 Lemma cputenv_add_var (A : UU0) (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
       n (k : _ -> M A) :
   do vars <- cget r; (cputenv vars r >> (add_var r n >>= k)) =
@@ -361,18 +455,71 @@ Lemma cputenv_add_var (A : UU0) (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
   do v <- add_var r n; cputenv (set_nth None vars n (Some v)) r >> k v.
 Proof.
 rewrite /add_var /= bindA.
+under eq_bind do rewrite -bindA cputenv_cget bindA bindretf.
 under [RHS]eq_bind do rewrite bindA.
 rewrite cgetget.
 apply: eq_bind => vars.
-rewrite /cputenv /=.
-case: (ltnP n (size vars)) => Hsz; last first.
-  rewrite nth_default // bindA.
-  under bind_ext_guard do rewrite cput_putvarsC //.
-  rewrite !bindA cputget nth_default //.
-  rewrite bindA -cputnewC.
-Search guard.
-  rewrite -(bindA (foldr _ _ _)) -cput_putvarsC.
-  rewrite foldr_bindA.
+case Hnth: (nth None vars n) => [v|].
+  rewrite !bindretf set_nthE.
+  case: ifPn => Hn.
+    by rewrite -Hnth // -drop_nth // cat_take_drop.
+  by move: Hnth; rewrite nth_default // leqNgt.
+rewrite /cputenv.
+rewrite !bindA -cputvarsnewC -cnewputC -2!bindA guardsC; last exact: bindmfail.
+rewrite !bindA -(cnewput ml_uvar (uVar n)).
+apply: eq_bind => rx.
+rewrite assertE bindA bindretf.
+rewrite -(bindA (guard _)) -guard_and.
+rewrite bindA -(bindA (cput r _)) -guardC bindA.
+rewrite -(bindA (guard _)) -guard_and -bindA -guardC.
+rewrite ![in RHS]bindA bindretf ![in RHS]bindA -[RHS]bindA -guardC.
+rewrite !bindA.
+set lg := _ && _.
+set rg := vars_loc_uniq _ _.
+have Hg : lg = rg.
+  rewrite /lg /rg /vars_loc_uniq /=.
+  rewrite set_nthE.
+  case: ifPn => Hn.
+    rewrite !loc_id_vars_cat /=.
+    rewrite -cat1s catA cats1.
+    rewrite
+      (_ : uniq (_ ++ _) = uniq ((loc_id rx :: loc_id_vars (take n vars))
+                       ++ loc_id_vars (None :: drop n.+1 vars))); last first.
+      by apply: perm_uniq; rewrite perm_cat2r perm_rcons.
+    rewrite -Hnth -drop_nth // [(_ :: _) ++ _]/=.
+    rewrite -loc_id_vars_cat cat_take_drop.
+    rewrite mem_cat mem_rcons -mem_cat /=.
+    rewrite [in RHS]in_cons negb_or.
+    rewrite (_ : _ ++ _ = loc_id_vars vars); last first.
+      rewrite -[X in _ = loc_id_vars X](cat_take_drop n) loc_id_vars_cat.
+      by rewrite [in RHS](drop_nth None) ?Hnth.
+    by rewrite !andbA [RHS]andbC !andbA [X in _ = X && _]andbC !andbA.
+  rewrite loc_id_vars_cat loc_id_vars_ncons /= uniq_catC.
+  rewrite mem_cat orbC -mem_cat /= in_cons negb_or.
+  by rewrite !andbA [RHS]andbC !andbA [X in _ = X && _]andbC !andbA.
+rewrite -Hg.
+apply: bind_ext_guard => /andP[] /andP[] /andP[] Hr Hvars rrx Hrx.
+rewrite -/uniq in Hvars.
+rewrite -(bindA (cput r _)) cput_putvarsC //.
+rewrite !bindA -(bindA (cput r _)) cputput.
+rewrite -[RHS](bindA (cput r _)) cputput.
+rewrite -[RHS](bindA (cput r _)) cput_putvarsC.
+  rewrite -[LHS]bindA cput_putvarsC // bindretf cputvars_add_var // ?Hnth //.
+  by rewrite bindA.
+rewrite set_nthE.
+case: ifPn => Hn.
+  move: Hr; rewrite -{1}(cat_take_drop n vars) !loc_id_vars_cat.
+  rewrite (drop_nth None) // Hnth /=.
+  apply: contra.
+  rewrite mem_cat => /orP[].
+    by rewrite mem_cat => ->.
+  rewrite in_cons mem_cat => /orP[H|->].
+    by rewrite H in rrx.
+  by rewrite orbT.
+rewrite -leqNgt in Hn.
+rewrite loc_id_vars_cat mem_cat negb_or Hr /=.
+by rewrite loc_id_vars_ncons mem_seq1.
+Qed.
 
 Definition add_vars vs r :=
   foldr (fun n m => add_var_skip r n >> m) (Ret r) vs.
@@ -439,21 +586,57 @@ have [-> | Hin] //= := eqVneq i n.
 by rewrite (IH _ _ (fun _ _ cond => _ >>= fun l => _ >> k _ _ cond)).
 Qed.
 
-Lemma cenvputenv vs :
-  cenv vs = do r <- cenv vs; do vars <- cget r; cputenv r vars r.
+Lemma cputvarsD vars :
+  uniq (loc_id_vars vars) ->
+  cputvars vars >> cputvars vars = cputvars vars.
 Proof.
-rewrite /cputenv.
-under eq_bind => r do
-  rewrite -(cgetget _ _ _ (fun vars s => cput r s >> foldr _ (Ret r)
-    (mkseq (fun i => if nth None vars i is Some _ then _ else _) (size vars)))).
-under eq_bind do under eq_bind do rewrite -bindA cgetputskip bindA bindskipf.
-under eq_bind do rewrite cgetget.
-elim/last_ind: vs => [|vs n IH].
-  by rewrite /cenv /= bindmret cnewget /= bindmret.
-rewrite -cats1 cenv_cat /add_vars /= {}[in LHS]IH 2!bindA.
-apply: eq_bind => r.
+elim/last_ind: vars => [|vars v IH].
+  by rewrite bindskipf.
+rewrite cputvars_rcons -cats1 loc_id_vars_cat uniq_catC.
+case: v => [v|]; last by rewrite !bindmskip.
+rewrite /= => /andP[] Hv Hu.
+rewrite -{1}cput_putvarsC // !bindA.
+rewrite -(bindA (cputvars _)) IH //.
+by rewrite -bindA cput_putvarsC // bindA cputput.
+Qed.
 
-Abort.
+Lemma cenvputenv vs :
+  cenv vs = do r <- cenv vs; do vars <- cget r; cputenv vars r >> Ret r.
+Proof.
+elim/last_ind: vs => [|vs n IH].
+  rewrite !bindA /cenv /=.
+  under [RHS]eq_bind do rewrite bindretf.
+  rewrite cnewget /cputenv /=.
+  under [RHS]eq_bind do rewrite guardT !bindskipf bindA bindskipf.
+  by rewrite cnewput.
+rewrite -cats1 cenv_cat IH.
+rewrite bindA.
+under eq_bind => r.
+  rewrite bindA.
+  under eq_bind do rewrite bindA bindretf /= -add_var_skipE bindA.
+  rewrite cputenv_add_var bindskipf.
+  over.
+symmetry.
+rewrite bindA /=.
+apply: eq_bind => r.
+rewrite bindA.
+apply: eq_bind => vars.
+rewrite bindA.
+apply: eq_bind => v.
+rewrite bindA bindretf /cputenv 5!bindA.
+under bind_ext_guard => /andP[] Hr.
+  rewrite -/uniq => Hu.
+  rewrite -bindA cput_putvarsC //.
+  rewrite bindA cputget.
+  rewrite !bindA -(bindA (cput _ _)) -guardC !bindA.
+  rewrite -(bindA (cput _ _)) cputput.
+  rewrite -(bindA (cputvars _)) -guardC !bindA.
+  rewrite -(bindA (cputvars _)) -cput_putvarsC //.
+  rewrite !bindA -(bindA (cputvars _)).
+  rewrite cputvarsD //.
+  over.
+by rewrite -(bindA (guard _)) -guard_and andbb.
+Qed.
 
 Lemma crunenvadd n vs :
   crun (cenv vs) ->
