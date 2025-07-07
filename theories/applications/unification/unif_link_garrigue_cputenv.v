@@ -909,7 +909,7 @@ apply: eq_bind => v.
 by rewrite !bindA bindretf bindA cputget nth_set_nth /= eqxx !bindretf.
 Qed.
 
-Lemma add_varC A (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
+Lemma add_varC_present A (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
       vars m n (k : _ -> M A) :
   nth None vars n ->
   cput r vars >> (add_var r n >>= fun v => add_var_skip r m >> k v) =
@@ -930,6 +930,25 @@ case: ifPn => nm.
 by rewrite Hnth bindretf.
 Qed.
 
+Lemma add_varC A (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
+      m n (k : _ -> M A) :
+  add_var r n >>= (fun v => add_var_skip r m >> k v) =
+  add_var r n >> (add_var_skip r m >> (add_var r n >>= k)).
+Proof.
+rewrite -[LHS](add_varD r n (fun _ _ => _ >>= _)).
+rewrite {1 3}/add_var.
+rewrite -cgetputk bindA [in RHS]bindA.
+apply: eq_bind => vars.
+rewrite bindA [RHS]bindA.
+case Hnth: nth => [v|].
+  by rewrite !bindretf add_varC_present ?Hnth.
+rewrite bindA [in RHS]bindA.
+apply: eq_bind => _.
+apply: eq_bind => v.
+rewrite bindA [in RHS]bindA !bindretf.
+by rewrite -[RHS]add_varC_present // nth_set_nth /= eqxx.
+Qed.
+
 Lemma add_varsC A r n s (k : _ -> M A) :
   (do v <- add_var r n; add_vars s r >> k v) =
   add_var r n >> (add_vars s r >> (add_var r n >>= k)).
@@ -937,29 +956,8 @@ Proof.
 elim: s => [|m s IH] /=.
   rewrite bindretf add_varD.
   by under eq_bind do rewrite bindretf.
-rewrite -add_var_skipE bindA bindskipf bindA.
-under eq_bind do rewrite bindA.
-rewrite -[LHS](add_varD r n (fun _ _ => _ >>= _)).
-rewrite -[RHS](add_varD r n (fun _ _ => _ >>= _)).
-rewrite {1 4}/add_var.
-rewrite -cgetputk bindA [in RHS]bindA.
-apply: eq_bind => vars.
-rewrite bindA [RHS]bindA.
-case Hnth: nth => [v|].
-  rewrite !bindretf.
-  under [add_var _ _ >>= _]eq_bind do
-          rewrite -[_ >> k _]bindskipf -bindA add_var_skipE.
-  rewrite add_varC ?Hnth // IH -add_varC ?Hnth //.
-  by rewrite -(add_var_skipE r m) bindA bindskipf.
-rewrite bindA [in RHS]bindA.
-apply: eq_bind => _.
-apply: eq_bind => v.
-rewrite bindA [in RHS]bindA !bindretf.
-rewrite -[add_vars s r >> _]bindskipf -(bindA _ (fun=>skip)) add_var_skipE.
-have Hnth' : nth None (set_nth None vars n (Some v)) n.
-  by rewrite nth_set_nth /= eqxx.
-rewrite add_varC // -IH -add_varC // -add_var_skipE.
-by under [X in _ = _ >> X]eq_bind do rewrite bindA bindskipf.
+rewrite bindA add_varC -IH -add_varC.
+by under eq_bind do rewrite bindA.
 Qed.
 
 Lemma add_vars_ret r vs : add_vars vs r >> Ret r = add_vars vs r.
