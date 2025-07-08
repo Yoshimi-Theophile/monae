@@ -259,6 +259,90 @@ case Hnth: nth => [v|].
 by rewrite bindskipf bindmskip.
 Qed.
 
+Lemma cputvars_rcons vars v :
+  cputvars (rcons vars v) =
+  cputvars vars >> if v is Some r then cput r (uVar (size vars)) else skip.
+Proof.
+rewrite /cputvars size_rcons -addn1 /mkseq iotaD /= add0n map_cat /=.
+rewrite foldr_cat /= foldr_bindA bindmskip.
+rewrite {2}/put_nth_var nth_rcons ltnn eqxx.
+congr (foldM _ _ >> _).
+apply/eq_in_map => i.
+rewrite mem_iota add0n leq0n /put_nth_var /= => Hi.
+by rewrite !nth_rcons Hi.
+Qed.
+
+Lemma nth_none_ltn A (s : seq (option A)) i a :
+  nth None s i = Some a -> i < size s.
+Proof.
+move=> Hnth.
+rewrite ltnNge; apply/negP => Hi.
+by rewrite nth_default in Hnth.
+Qed.
+
+Lemma uniq_loc_vars_some (vars : seq (option (loc ml_uvar))) i j v v' :
+  uniq (loc_id_vars vars) ->
+  nth None vars i = Some v ->
+  nth None vars j = Some v' ->
+  i != j -> loc_id v != loc_id v'.
+Proof.
+move=> Hu.
+wlog: i j v v' / i < j.
+  move=> H Hi Hj.
+  rewrite neq_ltn => /orP[] ltij.
+    by rewrite (H i j) // neq_ltn ltij.
+  by rewrite eq_sym (H j i) // neq_ltn ltij.
+elim: vars Hu i j => [|a vars IH] /=.
+  by move=> _ i j _; rewrite nth_default.
+move=> Hu [|i] [|j] //.
+  rewrite nth0 /= => [] <- Hi Hj.
+  move: Hu; rewrite Hi /= => /andP[] Ha Hu _.
+  apply: contra Ha => /eqP ->.
+  have Hv' : Some v' \in vars by rewrite -Hj mem_nth // (nth_none_ltn Hj).
+  rewrite (mem_pmap (omap(loc_id (locT:=nat)))).
+  exact: (map_f (omap(loc_id (locT:=nat))) Hv').
+rewrite ltnS /= eqSS; apply: IH.
+by case: a Hu => //= a /andP[].
+Qed.
+
+Lemma put_nth_varC vars i j :
+  uniq (loc_id_vars vars) ->
+  put_nth_var vars i >> put_nth_var vars j =
+  put_nth_var vars j >> put_nth_var vars i.
+Proof.
+move=> Hu.
+rewrite /put_nth_var.
+case Hi: nth => [v|]; last first.
+  by rewrite bindskipf bindmskip.  
+case Hj: nth => [v'|]; last first.
+  by rewrite bindskipf bindmskip.
+have [<-|ij] := eqVneq i j.
+  by rewrite cputC //; right.
+rewrite cputC //; left.
+exact: (uniq_loc_vars_some Hu Hi Hj).
+Qed.
+
+Lemma cputvars_putnth vars i :
+  uniq (loc_id_vars vars) ->
+  cputvars vars >> put_nth_var vars i = cputvars vars.
+Proof.
+elim/last_ind: vars => [|vars v IH Hu].
+  by rewrite /put_nth_var /= nth_default // bindmskip.
+case: (ltnP (size vars) i) => Hi.
+  by rewrite /put_nth_var nth_default ?bindmskip // size_rcons.
+rewrite cputvars_rcons bindA.
+move: Hi; rewrite leq_eqVlt => /orP[/eqP -> | Hi].
+  rewrite /put_nth_var nth_rcons ltnn eqxx.
+  case: v {Hu} => /= [v|].
+    by rewrite cputput.
+  by rewrite bindskipf.
+have {1 3}-> : v = nth None (rcons vars v) (size vars).
+  by rewrite nth_rcons ltnn eqxx.
+rewrite put_nth_varC // -bindA /put_nth_var nth_rcons Hi IH //.
+move: Hu; rewrite /loc_id_vars -cats1 pmap_cat uniq_catC /=.
+by case: v => //= v /andP[].
+Qed.
+
 Lemma cput_cchkvarsC (T : ml_type) vars (r : loc T) (x : coq_type N T) :
   cput r x >> cchkvars vars = cchkvars vars >> cput r x.
 Proof.
@@ -373,19 +457,6 @@ Lemma set_nth_cat A a0 s1 s2 n (a : A) :
   if n < size s1 then set_nth a0 s1 n a ++ s2
                  else s1 ++ set_nth a0 s2 (n-size s1) a.
 Proof. by elim: n s1 => [|n IH] [|b s1] //=; rewrite ltnS IH; case: ifPn. Qed.
-
-Lemma cputvars_rcons vars v :
-  cputvars (rcons vars v) =
-  cputvars vars >> if v is Some r then cput r (uVar (size vars)) else skip.
-Proof.
-rewrite /cputvars size_rcons -addn1 /mkseq iotaD /= add0n map_cat /=.
-rewrite foldr_cat /= foldr_bindA bindmskip.
-rewrite {2}/put_nth_var nth_rcons ltnn eqxx.
-congr (foldM _ _ >> _).
-apply/eq_in_map => i.
-rewrite mem_iota add0n leq0n /put_nth_var /= => Hi.
-by rewrite !nth_rcons Hi.
-Qed.
 
 Lemma cputvars_add_var vars n (rx : loc ml_uvar) :
   ~~ nth None vars n ->
@@ -600,42 +671,53 @@ rewrite -(bindA (cputvars _)) IH //.
 by rewrite -bindA cput_putvarsC // bindA cputput.
 Qed.
 
+Lemma cputenvD r vars :
+  cputenv vars r >> cputenv vars r = cputenv vars r.
+Proof.
+rewrite /cputenv 2!bindA.
+apply: bind_ext_guard => Hvars.
+rewrite Hvars guardT bindskipf bindA -(bindA (cputvars _)).
+rewrite -[in LHS]cput_putvarsC; last by case/andP: Hvars.
+by rewrite bindA -(bindA (cput _ _)) cputput cputvarsD; last case/andP: Hvars.
+Qed.
+
+Lemma cputenv_add_vars (A : UU0)
+      (r : loc (ml_list (ml_option (ml_ref ml_uvar)))) vars vs (k : M A) :
+  cputenv vars r >> (add_vars vs r >> (cget r >>= cputenv ^~ r >> k)) =
+  cputenv vars r >> (add_vars vs r >> k).
+Proof.
+elim: vs vars => [|n vs IH] /= vars.
+  rewrite bindretf bindA -[LHS]bindA cputenv_cget bindA bindretf.
+  by rewrite -[LHS]bindA cputenvD bindretf.
+rewrite -(add_var_skipE r n) 2!bindA bindskipf.
+have -> : cputenv vars r = cput r vars >> (cget r >>= cputenv ^~ r).
+  symmetry; rewrite /cputenv cputget.
+  by rewrite bindA -[LHS]bindA -guardC bindA -(bindA (cput _ _)) cputput.
+rewrite ![LHS]bindA 2![(cget r >>= _) >> _]bindA.
+rewrite cputenv_add_var cputget.
+under [add_var _ _ >>= _]eq_bind do rewrite -(bindA (cget r)) IH.
+symmetry.
+by rewrite 3!bindA bindskipf [(cget r >>= _) >> _]bindA cputenv_add_var cputget.
+Qed.
+
+Lemma add_vars_ret r vs : add_vars vs r >> Ret r = add_vars vs r.
+Proof. elim: vs => /= [|v vs IH]; by rewrite (bindretf,bindA) // IH. Qed.
+
 Lemma cenvputenv vs :
   cenv vs = do r <- cenv vs; do vars <- cget r; cputenv vars r >> Ret r.
 Proof.
-elim/last_ind: vs => [|vs n IH].
-  rewrite !bindA /cenv /=.
-  under [RHS]eq_bind do rewrite bindretf.
-  rewrite cnewget /cputenv /=.
-  under [RHS]eq_bind do rewrite guardT !bindskipf bindA bindskipf.
-  by rewrite cnewput.
-rewrite -cats1 cenv_cat IH.
-rewrite bindA.
-under eq_bind => r.
-  rewrite bindA.
-  under eq_bind do rewrite bindA bindretf /= -add_var_skipE bindA.
-  rewrite cputenv_add_var bindskipf.
-  over.
-symmetry.
-rewrite bindA /=.
+rewrite -(cat0s vs) cenv_cat.
+have -> :
+  cenv nil = (do r <- cenv nil; do vars <- cget r; cputenv vars r >> Ret r).
+  rewrite /cenv bindmret cnewget.
+  under eq_bind do rewrite bindA guardT !bindskipf.
+  by rewrite cnewput bindmret.
+rewrite [LHS]bindA 2![RHS]bindA.
 apply: eq_bind => r.
-rewrite bindA.
+rewrite [LHS]bindA [RHS]bindA.
 apply: eq_bind => vars.
-rewrite bindA.
-apply: eq_bind => v.
-rewrite bindA bindretf /cputenv 5!bindA.
-under bind_ext_guard => /andP[] Hr.
-  rewrite -/uniq => Hu.
-  rewrite -bindA cput_putvarsC //.
-  rewrite bindA cputget.
-  rewrite !bindA -(bindA (cput _ _)) -guardC !bindA.
-  rewrite -(bindA (cput _ _)) cputput.
-  rewrite -(bindA (cputvars _)) -guardC !bindA.
-  rewrite -(bindA (cputvars _)) -cput_putvarsC //.
-  rewrite !bindA -(bindA (cputvars _)).
-  rewrite cputvarsD //.
-  over.
-by rewrite -(bindA (guard _)) -guard_and andbb.
+rewrite bindA bindretf [RHS]bindA bindretf -add_vars_ret -cputenv_add_vars.
+by rewrite (bindA (add_vars _ _)) bindretf (bindA (cget r)).
 Qed.
 
 Lemma crunenvadd n vs :
@@ -960,9 +1042,6 @@ rewrite bindA add_varC -IH -add_varC.
 by under eq_bind do rewrite bindA.
 Qed.
 
-Lemma add_vars_ret r vs : add_vars vs r >> Ret r = add_vars vs r.
-Proof. elim: vs => /= [|n vs IH]; by [rewrite bindretf | rewrite bindA IH]. Qed.
-
 Lemma add_vars_cat r vs1 vs2 :
   add_vars (vs1 ++ vs2) r = add_vars vs1 r >> add_vars vs2 r.
 Proof. elim: vs1 => /= [|n vs IH]; by [rewrite bindretf|rewrite bindA IH]. Qed.
@@ -1081,89 +1160,30 @@ elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
   by rewrite 3!cenv_repr_k.
 Qed.
 
+Definition get_uLink (u : uvar) :=
+  if u is uTerm (uLink v) then Some v else None.
 
+Definition repr_uvar repr_uterm (v : loc ml_uvar) : M btree :=
+  do u <- cget v;
+  match u with
+  | uVar n => Ret (btVar n)
+  | uTerm t => repr_uterm t
+  end.
 
-(*
-Lemma repr_btree_ok vs bt : represents (cenv vs >>= repr_btree^~ bt) bt.
-Proof.
-elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
-- constructor.
-  rewrite !bindA.
-  rewrite -(cnewput (ml_list _) nil) -[RHS](cnewput (ml_list _) nil).
-  apply: eq_bind => vars.
-  set ws := nil.
-  have : seq.nth None ws n = None by case n.
-  elim: vs ws => /= [|a vs IH] ws Hws.
-    rewrite !bindretf !bindA !cputget Hws.
-    rewrite -cputchk bindA [RHS]bindA.
-    apply: eq_bind => _.
-    rewrite [X in _ >> X]bindA.
-    under cchknewE => l Hl.
-      under eq_bind do rewrite bindretf.
-      rewrite bindA bindretf -[uget _]cgetret cputgetC //.
-      over.
-    rewrite cnewget [X in _ = _ >> X]bindA.
-    apply: cchknewE => l _.
-    by rewrite bindA !bindretf.
-  have [<-|na] := eqVneq n a.
-    rewrite !bindA !cputget.
-    under eq_bind do rewrite Hws.
-    under [RHS]eq_bind do rewrite Hws.
-    rewrite -cputchk !bindA !bindskipf.
-    apply eq_bind => _.
-    rewrite -(cnewput ml_uvar (uVar n)).
-    rewrite -[in RHS](cnewput ml_uvar (uVar n)).
-    apply: cgetnewE => l Hl.
-    elim: vs ws {IH Hws} => /= [|b vs IH] ws.
-      rewrite !bindretf !bindA !cputget.
-      rewrite nth_set_nth /= eqxx !bindretf.
-      by rewrite -[uget _]cgetret cputgetC // cputget.
-    rewrite !bindA !cputget nth_set_nth /=.
-    case/boolP: (b == n) => bn.
-      by rewrite !bindretf IH.
-    case nthb: (seq.nth None ws b) => [l'|].
-      by rewrite !bindretf IH.
-    rewrite !bindA -!cputnewC.
-    rewrite !cputgetC 1?eq_sym // -!cputnewC.
-    apply: eq_bind => _.
-    apply: eq_bind => _.
-    apply: eq_bind => r.
-    rewrite -[cput vars _ >> _]bindA cputput.
-    rewrite -[cput vars _ >> (cput _ _ >> _)]bindA cputput.
-    rewrite (_ : set_nth _ _ _ _ =
-                 set_nth None (set_nth None ws b (Some r)) n (Some l)).
-      by rewrite IH.
-    by rewrite set_set_nth eq_sym (negbTE bn).
-  rewrite !bindA !cputget.
-  case ntha: (seq.nth None ws a) => [l|].
-    by rewrite !bindretf IH.
-  rewrite !bindA.
-  rewrite -!cputnewC.
-  apply: eq_bind => _.
-  apply: eq_bind => l.
-  rewrite IH //.
-  by rewrite nth_set_nth /= (negbTE na).
-- constructor.
-  by rewrite [RHS]bindA bindretf.
-- apply: (@RNode _ (uInt 1) (uInt 2)).
-Abort.
-*)
+Fixpoint repr_uterm_rec repr_uvar (t : uterm) : M btree :=
+  match t with
+  | uInt n => Ret (btInt n)
+  | uNode t1 t2 =>
+      do bt1 <- repr_uterm_rec repr_uvar t1;
+      do bt2 <- repr_uterm_rec repr_uvar t2;
+      Ret (btNode bt1 bt2)
+  | uLink r =>
+      repr_uvar r
+  end.
 
-Fixpoint repr_uterm h (t : uterm) : M btree :=
+Fixpoint repr_uterm h u :=
   if h is h.+1 then
-    match t with
-    | uInt n => Ret (btInt n)
-    | uNode t1 t2 =>
-        do bt1 <- repr_uterm h t1;
-        do bt2 <- repr_uterm h t2;
-        Ret (btNode bt1 bt2)
-    | uLink r =>
-        do v <- cget r;
-        match v with
-        | uVar n => Ret (btVar n)
-        | uTerm u => repr_uterm h u
-        end
-    end
+    repr_uterm_rec (repr_uvar (repr_uterm h)) u
   else fail.
 
 Definition represents' (m : M uterm) (bt : btree) :=
@@ -1176,71 +1196,64 @@ Definition represents3 (m : M uterm) (bt : btree) :=
   exists h,
     m = m >>= fun u => repr_uterm h u >>= fun x => guard (x == bt) >> Ret u.
 
-Lemma repr_btree_ok vs bt : represents' (cenv vs >>= repr_btree^~ bt) bt.
+Fixpoint le_vars (vars1 vars2 : seq (option (@loc _ nat ml_uvar))) :=
+  match vars1, vars2 with
+  | nil, _ => true
+  | _ :: _, nil => false
+  | None :: vars1, _ :: vars2 => le_vars vars1 vars2
+  | Some v1 :: vars1, Some v2 :: vars2 =>
+      (loc_id v1 == loc_id v2) && le_vars vars1 vars2
+  | Some _ :: _, None :: _ => false
+  end.
+
+(*
+Lemma le_vars_repr r vars1 vars2 bt :
+  le_vars vars1 vars2 ->
+  {in free_vars bt, nth None vars1} ->
+  putenv r vars1 >>
+*)
+
+Lemma repr_btree_ok' vs bt : represents' (cenv vs >>= repr_btree^~ bt) bt.
 Proof.
+exists 1.
 elim: bt vs => /= [n | n | bt1 IH1 bt2 IH2] vs.
-- exists 1.
-  rewrite !bindA.
-  rewrite -(cnewput (ml_list _) nil) -[RHS](cnewput (ml_list _) nil).
-  apply: eq_bind => vars.
-  set ws := nil.
-  have : seq.nth None ws n = None by case n.
-  elim: vs ws => /= [|a vs IH] ws Hws.
-    rewrite !bindretf !bindA !cputget Hws.
-    rewrite -cputchk bindA [RHS]bindA.
-    apply: eq_bind => _.
-    rewrite [X in _ >> X]bindA.
-    under cchknewE => l Hl.
-      under eq_bind do rewrite bindretf.
-      rewrite bindA bindretf.
-      rewrite [cput _ _ >> _](cputgetC _ _ Hl).
+- rewrite cenvputenv 2!bindA 2![in RHS]bindA.
+  apply: eq_bind => r.
+  rewrite bindA [in RHS]bindA.
+  under eq_bind do rewrite bindA bindretf bindA.
+  rewrite cputenv_add_var.
+  under eq_bind => vars.
+    under eq_bind => v.
+    rewrite bindretf /= /repr_uvar /cputenv.
+    rewrite 2!bindA.
+    under bind_ext_guard.
+      rewrite /vars_loc_uniq /= => /andP[] => Hr Hu.
+      have := cputvars_putnth n Hu.
+      rewrite /put_nth_var nth_set_nth /= eqxx => HC.
+      rewrite -HC 2!bindA cputget -(bindA (cputvars _)) HC.
       over.
-    rewrite cnewget [X in _ = _ >> X]bindA.
-    apply: cchknewE => l _.
-    by rewrite bindA !bindretf.
-  have [<-|na] := eqVneq n a.
-    rewrite !bindA !cputget.
-    under eq_bind do rewrite Hws.
-    under [RHS]eq_bind do rewrite Hws.
-    rewrite -cputchk !bindA !bindskipf.
-    apply eq_bind => _.
-    rewrite -(cnewput ml_uvar (uVar n)).
-    rewrite -[in RHS](cnewput ml_uvar (uVar n)).
-    apply: cgetnewE => l Hl.
-    elim: vs ws {IH Hws} => /= [|b vs IH] ws.
-      rewrite !bindretf !bindA !cputget.
-      rewrite nth_set_nth /= eqxx !bindretf.
-      by rewrite (cputgetC _ _ Hl) cputget.
-    rewrite !bindA !cputget nth_set_nth /=.
-    case/boolP: (b == n) => bn.
-      by rewrite !bindretf IH.
-    case nthb: (seq.nth None ws b) => [l'|].
-      by rewrite !bindretf IH.
-    rewrite !bindA -!cputnewC.
-    rewrite !cputgetC 1?eq_sym // -!cputnewC.
-    apply: eq_bind => _.
-    apply: eq_bind => _.
-    apply: eq_bind => r.
-    rewrite -[cput vars _ >> _]bindA cputput.
-    rewrite -[cput vars _ >> (cput _ _ >> _)]bindA cputput.
-    rewrite (_ : set_nth _ _ _ _ =
-                 set_nth None (set_nth None ws b (Some r)) n (Some l)).
-      by rewrite IH.
-    by rewrite set_set_nth eq_sym (negbTE bn).
-  rewrite !bindA !cputget.
-  case ntha: (seq.nth None ws a) => [l|].
-    by rewrite !bindretf IH.
-  rewrite !bindA.
-  rewrite -!cputnewC.
-  apply: eq_bind => _.
-  apply: eq_bind => l.
-  rewrite IH //.
-  by rewrite nth_set_nth /= (negbTE na).
-- exists 1. by rewrite bindA [RHS]bindA !bindretf.
-- case: (IH1 vs) => h1.
+    rewrite -3!bindA.
+    over.
+  over.
+  rewrite -cputenv_add_var.
+  under [RHS]eq_bind => vars.
+    rewrite bindA bindretf bindA.
+    under [add_var _ _ >>= _]eq_bind do rewrite bindretf.
+    over.
+  done.
+- by rewrite bindA [RHS]bindA !bindretf.
+- move/(_ vs) in IH1.
+  move/(_  (vs ++ free_vars bt1))  in IH2.
+  rewrite bindA.
+  under eq_bind => r.
+    rewrite bindA.
+    under eq_bind => u1.
+      rewrite bindA.
+      under eq_bind do rewrite bindretf /=.
+  over. over.
 Abort.
 
-Lemma repr_btree_ok vs bt :
+Lemma repr_btree_ok' vs bt :
   exists h vs',
     cenv vs >>= repr_btree^~ bt >>= repr_uterm h = cenv (vs++vs') >> Ret bt.
 Proof.
