@@ -25,6 +25,9 @@ Lemma writeA a b :
   (write a) >> (write b) = write (op a b).
 Proof. by rewrite /write -actionBind bindretf actionA. Qed.
 
+Lemma write0 : write S0 = Ret tt.
+Proof. by rewrite /write action0. Qed.
+
 Lemma runActionTwrite (s : S) :
   runActionT (write s) = Ret (tt, s).
 Proof. by rewrite /write runActionTaction runActionTret bindretf /= mulm1. Qed.
