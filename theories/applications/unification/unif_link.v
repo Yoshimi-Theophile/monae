@@ -944,7 +944,7 @@ Proof.
         over.
         rewrite add_varD.
         under [X in _ >> X]eq_bind => v0.
-          under eq_bind => l' do rewrite addn1 unify1_same.
+          under eq_bind => l' do rewrite addn1 (unify1_same h.+1).
         over.
       over.
     over.
@@ -962,7 +962,12 @@ Proof.
     under boolp.eq_exists => s.
       under [X in _ /\ X = _]eq_bind => vars.
         rewrite bindA repr_btree_cons /= 2!bindretf.
-        under [X in _ >> X]eq_bind do rewrite addn1 unify1_same -(addn1 (size_pairs _)).
+        
+        (*
+        under [X in _ >> X]eq_bind => l'.
+          rewrite addn1 /unify1 !bindretf eqxx.
+        *)
+        under [X in _ >> X]eq_bind do rewrite addn1 (unify1_same h.+1) -(addn1 (size_pairs _)).
         rewrite -bindA.
       over.
     over.
