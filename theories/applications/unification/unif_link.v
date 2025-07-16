@@ -829,11 +829,86 @@ Local Notation bt_unify2 := (unif_actionrun.unify2 M').
 Local Notation bt_unify1 := (unif_actionrun.unify1 M').
 Local Notation bt_size_pairs := unif_actionrun.size_pairs.
 
-Lemma unify1_same f1 f2 f3 t l :
-  unify1 f1 f2 f3 (size_pairs ((t, t) :: l)).+1 ((t, t) :: l) =
-  unify1 f1 f2 f3 (size_pairs l).+1 l.
+Lemma expand_same A h t (k : _ -> _ -> M A) :
+  do t1 <- expand_head h t;
+  do t2 <- expand_head h t;
+    k t1 t2 =
+  do t' <- expand_head h t;
+    k t' t'.
 Proof.
-elim: l => [|a l IH].
+  elim: h t => [/=|h IHh t].
+    by rewrite 2!bindfailf.
+  elim: t IHh => [l|n /=|t1 IH1 t2 IH2 /=] IHh.
+  - rewrite bindA [RHS]bindA.
+    under eq_bind do under eq_bind do rewrite bindA.
+    (*
+    rewrite -[LHS](cgetget _ _ _
+      (fun (x1 x2 : coq_type _ ml_uvar) =>
+        match x1 with | uVar _ => _ | uTerm _ => _ end >> _)).
+    rewrite -[RHS](cgetget _ _ _
+      (fun (x1 x2 : coq_type _ ml_uvar) =>
+        match x1 with | uVar _ => _ | uTerm _ => _ end >> _)).
+    apply: eq_bind => -[n|t].
+      rewrite !bindretf cgetget.
+      apply: eq_bind => -[n'|t'].
+        by rewrite !bindretf.
+    *)
+    admit.
+  - by rewrite !bindretf.
+  - by rewrite !bindretf.
+Admitted.
+
+Lemma size_uterm_pos t:
+  size_uterm t > 0.
+Proof. by elim: t. Qed.
+
+(* Requires that expand_head doesn't fail *)
+(* Also requires that every get in the expand_head is inhabited,
+   so this lemma probably isn't self-contained enough for a proof (?) *)
+Lemma unify1_same h t l :
+  unify1
+    (expand_head h)
+    (occurs_ref h)
+    (unify2 h h)
+    (size_pairs ((t, t) :: l)).+1 ((t, t) :: l) =
+  unify1
+    (expand_head h)
+    (occurs_ref h)
+    (unify2 h h)
+    (size_pairs l).+1 l.
+Proof.
+rewrite /unify1 expand_same /=.
+elim: l => [|a l IHl] /=.
+under eq_bind => t'.
+  have -> : forall f1 f2 f3,
+      match t' with
+        | uLink v1 =>
+            match t' with
+            | uLink v2 =>
+                if loc_id v1 == loc_id v2
+                then unify1 f1 f2 f3 (size_pairs [:: (t, t)])[::]
+                else unify_link (unify2 h h) v1 t' [::]
+            | _ => occurs_ref h v1 t' >> unify_link (unify2 h h) v1 t' [::]
+            end
+        | uInt m =>
+            match t' with
+            | uLink v2 => occurs_ref h v2 t' >> unify_link (unify2 h h) v2 t' [::]
+            | uInt n =>
+                if m == n
+                then unify1 f1 f2 f3 (size_pairs [:: (t, t)]) [::]
+                else fail
+            | uNode _ _ => fail
+            end
+        | uNode tl1 tl2 =>
+            match t' with
+            | uLink v2 => occurs_ref h v2 t' >> unify_link (unify2 h h) v2 t' [::]
+            | uInt _ => fail
+            | uNode tr1 tr2 => unify1 f1 f2 f3 (size_pairs [:: (t, t)]) [:: (tl1, tr1); (tl2, tr2)]
+            end
+        end = Ret tt.
+    elim: t' => [l|n|t'] *.
+    - rewrite eqxx /size_pairs /=.
+
 Admitted.
 
 Lemma unifysubst h vs l s0 :
