@@ -1081,7 +1081,7 @@ Proof.
     rewrite [RHS]bindA.
     apply: eq_bind => l2.
     by rewrite -{1 2}lock /= !bindretf.
-  + admit.
+  + by rewrite -size_vars_pairs_btNode.
   + admit.
   + admit.
 Abort.
