@@ -52,7 +52,7 @@ HB.instance Definition _ := hasDecEq.Build _ btree_eq_boolP.
 Definition substType : UU0 := list (var * btree).
 
 Definition subst0 : substType := [::].
-Definition subst_comp := (@List.app (var * btree)%type).
+Definition subst_comp := (@cat (var * btree)%type).
 
 (* t[x\u] *)
 Fixpoint subst x u t : btree :=
@@ -102,13 +102,13 @@ End Definitions.
 
 Section op.
 Lemma sconsA : associative subst_comp.
-Proof. exact: List.app_assoc. Qed.
+Proof. exact: catA. Qed.
 
 Lemma scons0s : left_id subst0 subst_comp.
 Proof. done. Qed.
 
 Lemma sconss0 : right_id subst0 subst_comp.
-Proof. exact: List.app_nil_r. Qed.
+Proof. exact: cats0. Qed.
 
 HB.instance Definition substIsLaw :=
   Monoid.isLaw.Build substType subst0 subst_comp sconsA scons0s sconss0.
@@ -269,11 +269,11 @@ Qed.
 
 Definition always (M' : failMonad) T p (m : M' T) := m >>= assert p = m.
 
-Lemma unify_subst_sound h v t l :
-  (forall l, always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)))
+Lemma unify_subst_sound f v t l :
+  (forall l, always (fun x => unifiesb_pairs x.2 l) (runActionT (f l)))
   ->
   always (fun x => unifiesb_pairs x.2 ((btVar v, t) :: l))
-    (runActionT (unify_subst (unify2 h) v t l)).
+    (runActionT (unify_subst f v t l)).
 Proof.
 rewrite /unify_subst /always.
 case/boolP: (v \in _) => Hocc // IH.
@@ -285,13 +285,12 @@ rewrite bindA.
 by under [in RHS]eq_bind do rewrite assertE bindA bindretf.
 Qed.
 
-Theorem unify2_sound h l :
-  always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)).
+Lemma unify1_sound f h' l :
+  (forall l, always (fun x => unifiesb_pairs x.2 l) (runActionT (f l))) ->
+  always (fun x => unifiesb_pairs x.2 l) (runActionT (unify1 f h' l)).
 Proof.
+move => IH.
 rewrite /always.
-elim: h l => /= [l | h IH l].
-- by rewrite runActionTfail bindfailf.
-move: (size_pairs l + 1) => h'.
 elim: h' l => //= [l | h' IH' [| [t1 t2] l] /=].
 - by rewrite runActionTfail bindfailf.
 - under eq_bind do rewrite assertE guardT bindskipf.
@@ -306,10 +305,20 @@ destruct t1, t2; try by rewrite runActionTfail bindfailf.
 - under eq_bind do rewrite assertE unifiesb_swap.
   exact/unify_subst_sound.
 - have []:= eqVneq n n0 => /= H; try by rewrite runActionTfail bindfailf.
-  by under eq_bind do rewrite assertE H unifiesb_same /=.
+  by under eq_bind => x do rewrite assertE H unifiesb_same /=.
 - under eq_bind do rewrite assertE unifiesb_swap.
   exact/unify_subst_sound.
 - by under eq_bind do rewrite assertE /unifiesb !subst_btNode eqb_btNode -andbA.
+Qed.
+
+
+Theorem unify2_sound h l :
+  always (fun x => unifiesb_pairs x.2 l) (runActionT (unify2 h l)).
+Proof.
+rewrite /always.
+elim: h l => /= [l | h IH l].
+  by rewrite runActionTfail bindfailf.
+exact: unify1_sound.
 Qed.
 
 Corollary soundness t1 t2: always (fun x => unifiesb x.2 t1 t2) (unify t1 t2).
@@ -586,4 +595,70 @@ Qed.
 
 End Completeness.
 
+Definition le_fail A (m1 m2 : M A) :=
+  runActionT m1 = runActionT m2 \/ runActionT m1 = fail.
+
+Definition le_fail_f A B (f1 f2 : A -> M B) :=
+  forall a, le_fail (f1 a) (f2 a).
+
+Lemma unify_subst_mono f1 f2 x t :
+  le_fail_f f1 f2 ->
+  le_fail_f (unify_subst f1 x t) (unify_subst f2 x t).
+Proof.
+move => Hf r.
+rewrite /unify_subst /=.
+case: ifPn => Hin; first by left.
+rewrite /le_fail 2!runActionTbind runActionTwrite !bindretf.
+case: (Hf [seq subst_pair [:: (x, t)] i | i <- r]) => ->.
+  by left.
+by rewrite bindfailf; right.
+Qed.
+
+Lemma unify1_mono h1 h2 f1 f2 :
+  h1 <= h2 ->
+  le_fail_f f1 f2 ->
+  le_fail_f (unify1 f1 h1) (unify1 f2 h2).
+Proof.
+elim: h1 h2 => [h2|h1 IHh1 [|h2]].
+- by right; rewrite runActionTfail.
+- by rewrite ltn0.
+- rewrite ltnS => Hle Hf l /=.
+  case: l => [|[[v1|n1|t1 t1'] [v2|n2|t2 t2']] l];
+    try (exact: unify_subst_mono || by left).
+  + case: ifPn => v12.
+      exact: IHh1.
+    exact: unify_subst_mono.
+  + case: ifPn => n12.
+      exact: IHh1.
+    by left.
+  + exact: IHh1.
+Qed.
+
+Lemma unify2_mono h1 h2 :
+  h1 <= h2 ->
+  le_fail_f (unify2 h1) (unify2 h2).
+Proof.
+elim: h1 h2 => [h2|h1 IHh1 [|h2]].
+- by right; rewrite runActionTfail.
+- by rewrite ltn0.
+- rewrite ltnS => Hle /= l.
+  apply: unify1_mono => //.
+  exact: IHh1.
+Qed.
+
 End Unify.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
