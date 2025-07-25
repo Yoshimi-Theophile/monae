@@ -2,7 +2,7 @@
 From mathcomp Require Import all_ssreflect ssralg ssrint.
 From mathcomp Require boolp.
 From HB Require Import structures.
-Require Import preamble hierarchy monad_lib typed_store_lib.
+Require Import preamble hierarchy monad_lib typed_store_lib fail_lib.
 Require Import action_monad action_model unif_actionrun.
 Require Import monad_model.
 
@@ -284,33 +284,33 @@ by rewrite !bindA bindretf bindA cputget nth_set_nth /= eqxx !bindretf.
 Qed.
 
 Lemma add_varC_present A (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
-      vars m n (k : _ -> M A) :
+      vars m n (k : _ -> _ -> M A) :
   nth None vars n ->
-  cput r vars >> (add_var r n >>= fun v => add_var_skip r m >> k v) =
-  cput r vars >> (add_var_skip r m >> (add_var r n >>= k)).
+  cput r vars >> (add_var r n >>= fun v => add_var r m >>= k v) =
+  cput r vars >> (add_var r m >>= fun w => add_var r n >>= k ^~ w).
 Proof.
 move=> Hn.
 rewrite bindA [in RHS]bindA !cputget.
 case Hnth: nth Hn => [v|] // _.
-rewrite bindretf 2!bindA cputget.
+rewrite bindretf bindA cputget.
 case Hnth': nth => [v'|] /=.
-  by rewrite !bindskipf cputget Hnth bindretf.
+  by rewrite !bindretf bindA cputget Hnth bindretf.
 apply: eq_bind => _.
 rewrite 2!bindA.
 apply: eq_bind => v'.
-rewrite cputget nth_set_nth /=.
+rewrite !bindA !bindretf bindA cputget nth_set_nth /=.
 case: ifPn => nm.
   by rewrite (eqP nm) Hnth' in Hnth.
 by rewrite Hnth bindretf.
 Qed.
 
 Lemma add_varC A (r : loc (ml_list (ml_option (ml_ref ml_uvar))))
-      m n (k : _ -> M A) :
-  add_var r n >>= (fun v => add_var_skip r m >> k v) =
-  add_var r n >> (add_var_skip r m >> (add_var r n >>= k)).
+      m n (k : _ -> _ -> M A) :
+  add_var r n >>= (fun v => add_var r m >>= k v) =
+  add_var r n >> (add_var r m >>= fun w => add_var r n >>= k ^~ w).
 Proof.
 rewrite -[LHS](add_varD r n (fun _ _ => _ >>= _)).
-rewrite {1 3}/add_var.
+rewrite {1 4}/add_var.
 rewrite -cgetputk bindA [in RHS]bindA.
 apply: eq_bind => vars.
 rewrite bindA [RHS]bindA.
@@ -330,7 +330,7 @@ Proof.
 elim: s => [|m s IH] /=.
   rewrite bindretf add_varD.
   by under eq_bind do rewrite bindretf.
-rewrite bindA add_varC -IH -add_varC.
+rewrite bindA -add_var_skipE 2!bindA bindskipf add_varC bindskipf -IH -add_varC.
 by under eq_bind do rewrite bindA.
 Qed.
 
@@ -983,26 +983,122 @@ Qed.
 Lemma size_tree_gt0 bt : size_tree bt > 0.
 Proof. by case: bt. Qed.
 
+Definition has_vars (r : loc (ml_list (ml_option (ml_ref ml_uvar)))) vs : M _ :=
+  cget r >>= assert (fun vars => all (nth None vars) vs).
+
+Lemma guardC b (m : M unit) : guard b >> m = m >> guard b.
+Proof.
+by case: b; rewrite (guardT,guardF) !(bindskipf,bindmskip,bindfailf,bindmfail).
+Qed.
+
+(*
+Lemma csubst_add_varC A r v t v' (k : _ -> M A) :
+  has_vars r [:: v] >> (csubst r v t >> (add_var r v' >>= k)) =
+  has_vars r [:: v] >> (add_var r v' >>= fun u => csubst r v t >> k u).
+Proof.
+rewrite bindA [RHS]bindA -cgetputk -[RHS]cgetputk.
+apply eq_bind => vars.
+rewrite assertE bindA bindretf -[LHS]bindA -guardC bindA.
+rewrite [in RHS]bindA bindretf -[RHS]bindA -guardC [RHS]bindA.
+apply: bind_ext_guard => Hall.
+rewrite bindA.
+ bindA -[LHS]bindA -guardC bindA.
+rewrite /csubst /add_var.
+Search repr_btree.
+*)
+
+Definition vars_subst '(v, t) := rcons (free_vars t) v.
+Definition vars_subst_list (s : substType) :=
+  foldr cat nil (map vars_subst s).
+
+Lemma csubst_add_varC A r v t v' (k : _ -> M A) :
+  csubst r v t >> (add_var r v' >>= k) =
+  add_vars (vars_subst (v,t)) r >>
+    (add_var r v' >>= fun u => csubst r v t >> k u).
+Proof.
+rewrite /csubst /= -cats1 add_vars_cat /=.
+rewrite 2![in RHS]bindA bindretf.
+elim: t => [u|n|t1 t2 IH1 IH2] /=.
+- rewrite 2!bindA.
+  under eq_bind do rewrite bindretf bindA.
+  rewrite bindA bindretf -!add_var_skipE 2!bindA !bindskipf.
+  symmetry.
+  rewrite add_varC.
+  under (eq_bind (add_var r v')) do rewrite 2!bindA.
+  rewrite -(add_varC r v' u) -add_varC.
+  apply eq_bind => l.
+  under (eq_bind (add_var r v')) do rewrite bindretf bindA.
+  rewrite -add_varC.
+  admit.
+- rewrite !bindretf -add_var_skipE 2!bindA bindskipf.
+  under [X in _ = _ >> X]eq_bind do rewrite bindA.
+  rewrite -add_varC.
+Abort.
+
+Lemma csubst_repr_btreeC A r v t bt (k : _ -> M A) :
+  csubst r v t >> (repr_btree r bt >>= k) =
+  add_vars (vars_subst (v,t)) r >>
+    (repr_btree r bt >>= fun u => csubst r v t >> k u).
+Proof.
+elim: bt => [v'|n|t1 t2 IH1 IH2].
+- rewrite /= bindA [in RHS]bindA.
+  under (eq_bind (add_var r v')) => l do rewrite bindretf.
+  under [in RHS](eq_bind (add_var r v')) => l do rewrite bindretf.
+Abort.
+
+Lemma csubst_list_repr_btreeC A r s bt (k : _ -> M A) :
+  csubst_list r s >> (repr_btree r bt >>= k) =
+  repr_btree r bt >>= fun u => csubst_list r s >> k u.
+Proof.
+elim: s k => [|[v t] s IH] k.
+  rewrite bindretf.
+  by under [RHS]eq_bind do rewrite bindretf.
+rewrite /csubst_list /= bindA IH -/(csubst_list r s).
+Abort.
+
+Definition push_subst : substType -> substType :=
+  foldl (fun s '(v,t) => rcons s (v, subst_list s t)) nil.
+
+Lemma size_push_subst s : size (push_subst s) = size s.
+Proof.
+rewrite /push_subst; set h := nil; pose t := s; rewrite -{1}/t.
+have <- : size h + size t = size s by [].
+elim: t h => /= [|[x y] t IH] h.
+  by rewrite addn0.
+by rewrite IH /= size_rcons addnS.
+Qed.
+
 (* Lemma expand_head expand_head (locked h.+1) (uLink _x_ *)
 
 Lemma unifysubst h h' he vs l (s0 s : substType) :
-  h > size (vars_pairs (map (subst_pair s0) l)) ->
-  h' > bt_size_pairs (map (subst_pair (s0 ++ s)) l) ->
+  h > size (vars_pairs (map (subst_pair (push_subst s0)) l)) ->
+  h' > bt_size_pairs (map (subst_pair (push_subst s0 ++ s)) l) ->
   he > size s0 ->
-  bt_unify2 h (map (subst_pair s0) l) = write M' s ->
+  bt_unify2 h (map (subst_pair (push_subst s0)) l) = write M' s ->
+  exists2 s',
+    push_subst s' = s &
     cenv vs >>= (fun vars =>
       csubst_list vars s0 >> repr_btree_pairs vars l >>= (unify2 h h' he)
-    ) = cenv vs >>= csubst_list^~ (s0 ++ s).
+    ) = cenv vs >>= csubst_list^~ (s0 ++ s').
 Proof.
   elim: h h' he vs l s0 s => // h IHh.
   elim/ltn_ind => h' IHh' he vs [/=|[t1 t2] l] s0 s.
     case: h' IHh' => // h' IHh' _ _ He [].
     rewrite [RHS]cats0 => <-.
-    rewrite /repr_btree_pairs /repr_btree_list /= !bindretf /=.
-    under eq_bind do rewrite bindA bindretf /= -foldr_bindA.
+    exists nil => //.
+    under eq_bind do rewrite /repr_btree_pairs bindA !bindretf /= -foldr_bindA.
     by rewrite cats0.
   move=> Hh Hh' He.
-  rewrite /= /bt_size_pairs /= addn1 /=.
+  rewrite /repr_btree_pairs /=.
+  under eq_bind => r.
+  rewrite 3!bindA -bindA.
+  under eq_bind do rewrite bindA.
+  under eq_bind do under eq_bind do rewrite bindretf 2!bindA.
+  under eq_bind do under eq_bind do under eq_bind do rewrite bindA.
+  under eq_bind => u1 do under eq_bind => l1 do
+    under eq_bind => u2 do under eq_bind => l2 do rewrite !bindretf /=.
+  over.
+  case: h' Hh' IHh' => // h' Hh' IHh'.
 
 (*
   case=> t1 t2 l Hs Hs'.
