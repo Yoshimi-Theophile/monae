@@ -978,17 +978,24 @@ case Hu2: (bt_unify1 (bt_unify2 h') h2 l) => [[]|[[] s]] //.
 have Hu: unifiesb_pairs s l.
   have := (@unify1_sound N' M' (bt_unify2 h') h2 l).
   rewrite /= /runActionT /= Hu2 => Ha.
-  have Ha': forall l', always (fun x => unifiesb_pairs x.2 l') (bt_unify2 h' l')
-    by exact: unify2_sound M' h'.
+  have Ha' l' : always (fun x => unifiesb_pairs x.2 l') (bt_unify2 h' l')
+    by apply: (unify2_sound M').
   move: (Ha Ha').
-  rewrite /always bindretf /assert.
+  rewrite /always bindretf assertE.
   by case: (unifiesb_pairs s l).
-case: (unify2_complete M' Hh' Hu) => /= x [Hnf [Ha Hm]].
-move: Hnf.
+case: (unify2_complete M' Hh' Hu) => /= x [].
 rewrite -addn1 in Hh1.
 case: (unify1_mono Hh1 Hlf l) => -> //.
 by rewrite H.
 Qed.
+
+Lemma size_tree_gt0 bt : size_tree bt > 0.
+Proof. by case: bt. Qed.
+
+Lemma size_tree_subst_btNode s t1 t2 :
+  size_tree (subst_list s (btNode t1 t2)) =
+    (size_tree (subst_list s t1) + size_tree (subst_list s t2)).+1.
+Proof. by elim: s t1 t2 => // -[v t] s /= IH t1 t2; rewrite IH. Qed.
 
 Lemma unifysubst h vs l s s0 :
   h > size (vars_pairs l) ->
@@ -1047,9 +1054,9 @@ Proof.
       rewrite {1 2}[h.+1]lock /= -{1 2}lock /= !bindretf eqxx -lock.
   over.
   rewrite -(IH' l) /unify2 //.
-    move: Hs'.
-    rewrite /bt_size_pairs /=.
-    admit.
+    move: Hs'; rewrite ltnS /bt_size_pairs /=.
+    apply: leq_trans.
+    by rewrite -[ltnLHS]add0n -addSn leq_add // addn_gt0 size_tree_gt0.
   rewrite -Hu [_ :: l]lock /= -{2}lock [in RHS]addn1 /= eqxx -lock.
   apply: unify1_eq.
   + by rewrite addn1 ltnW.
@@ -1082,8 +1089,15 @@ Proof.
     apply: eq_bind => l2.
     by rewrite -{1 2}lock /= !bindretf.
   + by rewrite -size_vars_pairs_btNode.
-  + admit.
-  + admit.
+  + move: Hs'; rewrite /bt_size_pairs /= ltnS.
+    apply: leq_trans => /=.
+    rewrite !size_tree_subst_btNode /= !addSn addnS addSn ltnW // !ltnS !addnA.
+    by rewrite (addnAC (size_tree _)).
+  + rewrite -Hu /= plusE.
+    apply: unify1_eq.
+    * by rewrite /bt_size_pairs /= !addnA (addnAC (size_tree _)) !(addn1,add1n).
+    * by rewrite addn1.
+    * by rewrite ltnS size_vars_pairs_btNode in Hs.
 Abort.
 
 (*
