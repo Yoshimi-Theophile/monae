@@ -1070,6 +1070,18 @@ Qed.
 
 (* Lemma expand_head expand_head (locked h.+1) (uLink _x_ *)
 
+Lemma ltnm0 (n m : nat) : m < n -> 0 < n.
+Proof.
+elim: m => // ? IH ?.
+exact/IH/ltnW.
+Qed.
+
+Lemma expandS_uInt he n : 0 < he -> expand_head he (uInt n) = Ret (uInt n).
+Proof. by case: he. Qed.
+
+Lemma expandS_uNode he t1 t2 : 0 < he -> expand_head he (uNode t1 t2) = Ret (uNode t1 t2).
+Proof. by case: he. Qed.
+
 Lemma unifysubst h h' he vs l (s0 s : substType) :
   h > size (vars_pairs (map (subst_pair (push_subst s0)) l)) ->
   h' > bt_size_pairs (map (subst_pair (push_subst s0 ++ s)) l) ->
@@ -1139,12 +1151,18 @@ Proof.
 - admit.
   (* IntInt *)
 - have [-> Hu|eqnn0 /=] := eqVneq n n0; last by rewrite /subst_pair !subst_btInt /= (negPf eqnn0).
-  have H1: size (vars_pairs [seq subst_pair (push_subst s0) i | i <- l]) < h.+1 by admit.
+  have H1: size (vars_pairs [seq subst_pair (push_subst s0) i | i <- l]) < h.+1
+    by rewrite /= 2!subst_btInt /vars /= in Hh.
   have H2:
     bt_size_pairs [seq subst_pair (push_subst s0 ++ s) i | i <- l] <
     bt_size_pairs [seq subst_pair (push_subst s0 ++ s) i | i <- (btInt n, btInt n0) :: l]
-  by admit.
-  have H3: bt_unify2 h.+1 [seq subst_pair (push_subst s0) i | i <- l] = write M' s by admit.
+    by rewrite /= /subst_pair 2!subst_btInt /bt_size_pairs.
+  have H3: bt_unify2 h.+1 [seq subst_pair (push_subst s0) i | i <- l] = write M' s.
+    move: Hu.
+    rewrite /= /subst_pair !subst_btInt.
+    rewrite [bt_unify1]lock.
+    rewrite /bt_size_pairs /= add1n add2n !addn1.
+    admit.
   move: (IHh' _ Hh' he vs l s0 s H1 H2 He H3) => [s' ? IH].
   exists s' => //.
   rewrite -IH [unify1]lock [unify2]lock /=.
@@ -1157,6 +1175,11 @@ Proof.
   apply: eq_bind => l2.
   rewrite bindretf -lock /=.
   rewrite /subst_pair !subst_btInt.
+  move: (ltnm0 He) => He'.
+  rewrite expandS_uInt => //.
+  rewrite 2!bindretf eqxx.
+  rewrite /bt_size_pairs /= add1n add2n.
+  rewrite -lock [_.+2]lock /=.
   admit.
 
   (*
@@ -1231,6 +1254,9 @@ Proof.
   rewrite bindretf [RHS]bindA.
   apply: eq_bind => l2.
   rewrite bindretf -lock /=.
+  move: (ltnm0 He) => He'.
+  rewrite !expandS_uNode => //.
+  rewrite 2!bindretf -lock /=.
   admit.
 Abort.
 
