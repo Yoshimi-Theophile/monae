@@ -1209,6 +1209,12 @@ HB.mixin Record isMonadTypedStoreFail (MLU : ML_universe) (N : monad)
       cnew T' s' >>=
         (fun r' => guard (loc_id r != loc_id r') >> (cput r s >> k r'))
       = cput r s >> (cnew T' s' >>= k) ;
+  cnewgetC :
+    forall T T' (r : loc locT T) (s' : coq_type N T') A
+           (k : loc locT T' -> coq_type N T -> M A),
+      cnew T' s' >>=
+        (fun r' => guard (loc_id r != loc_id r') >> (cget r >>= k r'))
+      = cget r >>= (fun x => cnew T' s' >>= k ^~ x) ;
 }.
 
 #[short(type=typedStoreFailMonad)]

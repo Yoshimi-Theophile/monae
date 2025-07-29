@@ -2192,6 +2192,32 @@ have [u Hr1|T1' s'd Hr1 T1s'|Hr1] := ntherrorP e r1; last first.
       by rewrite set_set_nth (negbTE Hr).
 Qed.
 
+Let cnewgetC T T' (r : loc T) (s' : coq_type T') A
+           (k : loc T' -> coq_type T -> M A) :
+  cnew s' >>= (fun r' => guard (loc_id r != loc_id r') >> (cget r >>= k r'))
+  = cget r >>= (fun x => cnew s' >>= k ^~ x).
+Proof.
+apply/boolp.funext => e /=.
+have [u Hr|T1 s1 Hr Ts|Hr] := ntherrorP e r.
+- rewrite bind_cnew (Some_cget _ _ _ _ Hr).
+  rewrite /fresh_loc /= eqn_leq negb_and -!ltnNge (nth_error_size Hr) orbT.
+  rewrite guardT bindskipf.
+  move/(nth_error_rcons_some (mkbind s')) in Hr.
+  by rewrite (Some_cget _ _ _ _ Hr) bind_cnew.
+- rewrite [RHS]MS_bindE (nocoerce_cget Hr) // bind_cnew.
+  case/boolP: (_ == _) => //=.
+  by rewrite bindskipf MS_bindE (nocoerce_cget (nth_error_rcons_some _ Hr)).
+- rewrite [RHS]MS_bindE (None_cget Hr) // bind_cnew.
+  case/boolP: (_ == _) => //= Hloc.
+  rewrite bindskipf MS_bindE.
+  have Hr' : nth_error (extend_env s' e) (loc_id r) = None.
+    apply/List.nth_error_None/leP.
+    rewrite /extend_env -cats1 List.length_app /= -addnE addn1.
+    rewrite ltn_neqAle eq_sym Hloc /=.
+    exact/leP/List.nth_error_None.
+  by rewrite (None_cget Hr').
+Qed.
+
 Let cputgetC T1 T2 (r1 : loc T1) (r2 : loc T2) (s1 : coq_type T1)
     (A : UU0) (k : coq_type T2 -> M A) :
   loc_id r1 != loc_id r2 ->
@@ -2330,7 +2356,7 @@ HB.instance Definition isMonadTypedStoreRunModel :=
   isMonadTypedStoreRun.Build ml_type N locT_nat M
     crunret crunbind crunskip crunnew crunnewgetC crungetput crunmskip.
 HB.instance Definition isMonadTypedStoreFailModel :=
-  isMonadTypedStoreFail.Build ml_type N locT_nat M cnewputC.
+  isMonadTypedStoreFail.Build ml_type N locT_nat M cnewputC cnewgetC.
 
 End mkbind.
 End ModelTypedStoreRun.

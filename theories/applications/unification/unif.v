@@ -477,7 +477,7 @@ Proof.
 Qed.
 
 Definition complete_for s (m : M unit) :=
-  exists s1, m = write M s1 >> Ret tt /\ moregen s1 s.
+  exists s1, m = write M s1 /\ moregen s1 s.
 
 Lemma unify_subst_complete s h v t l :
   (forall l,
@@ -496,7 +496,7 @@ Proof.
   - exact: unifiesb_pairs_extend.
   move=> s1 [Hnf] Hmg.
   exists (subst_comp [:: (v, t)] s1) => /=.
-  rewrite Hnf -bindA writeA /=.
+  rewrite Hnf writeA /=.
   split => //.
   apply: moregen_extend => //.
   by case/andP: Hs => ->.
@@ -513,7 +513,7 @@ Proof.
     by rewrite -Hh' addn1 ltnS.
   elim: h' l Hh => //= h' IH' [] //=.
     move => *; exists subst0.
-    rewrite write0 bindretf; split => //.
+    rewrite write0; split => //.
     exists s => t; by rewrite subst_zero.
   case=> t1 t2 l Hh Hh' Hs.
   destruct t1, t2 => /=.
