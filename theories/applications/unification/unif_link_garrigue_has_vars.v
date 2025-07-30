@@ -1316,9 +1316,18 @@ Lemma csubst_add_varC A r vs v t v' (k : _ -> M A) :
   has_vars r vs >> (csubst r v t >> (add_var r v' >>= k)) =
   has_vars r vs >> (add_var r v' >>= fun u => csubst r v t >> k u).
 Proof.
+move=> Hfv Hv.
+rewrite -bindA has_vars_csubstC // 2!bindA.
+rewrite [in LHS]has_vars_add_var [RHS]has_vars_add_var.
+rewrite -2!bindA (bindA (has_vars r vs)) -has_vars_csubstC // bindA.
+under [X in _ = _ >> X]eq_bind => l'.
+  rewrite -bindA has_vars_csubstC //; first by rewrite bindA; over.
+  by move=> x Hx; rewrite mem_rcons in_cons orbC Hfv.
+rewrite -has_vars_add_var.
 rewrite /csubst /=.
-elim: t => [u|n|t1 IH1 t2 IH2] /= Hfv Hv.
-- rewrite has_varsE [LHS]bindA [RHS]bindA.
+elim: t k Hfv Hv => [u|n|t1 IH1 t2 IH2] /= k Hfv Hv.
+- rewrite 3!bindA.
+  rewrite has_varsE [LHS]bindA [RHS]bindA.
   apply: eq_bind => vars.
   rewrite !bindA !cputget.
   apply: bind_ext_guard => /andP[Hvars Huniq].
@@ -1336,11 +1345,35 @@ elim: t => [u|n|t1 IH1 t2 IH2] /= Hfv Hv.
   rewrite -(bindA _ (fun=> cput l _)) cputC; try (exact nat || by left).
   rewrite bindA cputget.
   case Hnth': nth => [l'|].
-    rewrite !bindretf !bindA cputget Hnthu.
-    rewrite !bindretf !bindA cputget Hnth.
-    rewrite bindretf  -(bindA (cput l _)) -cputC; try (exact nat || by left).
-    by rewrite bindA.
-  rewrite !bindA.
+    rewrite !bindretf bindA cputget bindA Hnthu !bindretf.
+    rewrite 3![in RHS]bindA cputget Hnth bindretf.
+    by rewrite -(bindA (cput l _)) -cputC ?bindA; try (exact nat || by left).
+  apply: eq_bind => _.
+  rewrite -(bindA (cput l _)) -cputC; try (exact nat || by left).
+  rewrite 2!bindA -cnewputC.
+  apply: eq_bind => _.
+  rewrite bindA.
+  apply: eq_bind => l'.
+  rewrite !bindA !bindretf bindA cputget.
+  rewrite nth_set_nth /=.
+  case: ifPn => uv'.
+    by rewrite (eqP uv') Hnth' in Hnthu.
+  rewrite Hnthu !bindretf 3![in RHS]bindA cputget.
+  rewrite nth_set_nth /=.
+  case: ifPn => vv'.
+    by rewrite (eqP vv') Hnth' in Hnth.
+  rewrite Hnth bindretf.
+  rewrite -[RHS]bindA cputC //; last by left.
+  rewrite has_varsE !bindA cputget !bindA.
+  rewrite -2![X in _ >> X]bindA -guardC bindA -[LHS]bindA guardC.
+  rewrite -2![RHS]bindA -[in RHS]guardC 3!bindA.
+  apply: bind_ext_guard => /andP[Hrc Hst].
+  rewrite (@uniq_loc_vars_some (set_nth None vars v' (Some l')) v v') //.
+    by rewrite guardT bindskipf bindA.
+  - by case/andP: Hst.
+  - by rewrite nth_set_nth /= (negbTE vv').
+  - by rewrite nth_set_nth /= eqxx.
+- rewrite bindretf. admit.
 Abort.
 
 Lemma csubst_repr_btreeC A r v t bt (k : _ -> M A) :
