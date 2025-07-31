@@ -1071,10 +1071,7 @@ Qed.
 (* Lemma expand_head expand_head (locked h.+1) (uLink _x_ *)
 
 Lemma ltnm0 (n m : nat) : m < n -> 0 < n.
-Proof.
-elim: m => // ? IH ?.
-exact/IH/ltnW.
-Qed.
+Proof. exact: leq_ltn_trans. Qed.
 
 Lemma expandS_uInt he n : 0 < he -> expand_head he (uInt n) = Ret (uInt n).
 Proof. by case: he. Qed.
@@ -1103,16 +1100,6 @@ Proof.
   move=> Hh Hh' He.
   under eq_bind => vars do rewrite bindA repr_btree_cons /=.
   rewrite /repr_btree_pairs /=.
-  (*
-  under eq_bind => r.
-  rewrite 3!bindA -bindA.
-  under eq_bind do rewrite bindA.
-  under eq_bind do under eq_bind do rewrite bindretf 2!bindA.
-  under eq_bind do under eq_bind do under eq_bind do rewrite bindA.
-  under eq_bind => u1 do under eq_bind => l1 do
-    under eq_bind => u2 do under eq_bind => l2 do rewrite !bindretf /=.
-  over.
-  *)
   case: h' Hh' IHh' => // h' Hh' IHh'.
   destruct t1, t2.
 (* LinkLink *)
@@ -1222,9 +1209,10 @@ Proof.
     rewrite [bt_unify1]lock.
     rewrite /bt_size_pairs /= add1n add2n !addn1.
     admit.
-  have Hm: h' < h'.+1 by done.
+  have Hm: h' < h'.+1 by [].
   move: (IHh' _ Hm he vs l s0 s H1 H2 He H3) => [s' ? IH].
   exists s' => //.
+  rewrite /= in IH.
   rewrite -IH [unify1]lock [unify2]lock /=.
   apply: eq_bind => vars.
   rewrite [RHS]bindA.
@@ -1265,6 +1253,7 @@ Proof.
 - by rewrite /subst_pair /= subst_btNode subst_btInt.
   (* NodeNode *)
 - move => Hu.
+  rewrite /= /subst_pair !subst_btNode /= -addnE in Hu.
   have H1:
     size (vars_pairs
       [seq subst_pair (push_subst s0) i
@@ -1283,13 +1272,11 @@ Proof.
       [seq subst_pair (push_subst s0) i
         | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]] =
     write M' s.
-    rewrite /= /subst_pair !subst_btNode in Hu.
-    rewrite -Hu /=.
+    rewrite -Hu.
     apply: unify1_eq => //=; last first.
       by rewrite addn1.
-    rewrite /bt_size_pairs /= !addnA (addnAC (size_tree _)).
-    admit.
-  have Hm: h' < h'.+1 by done.
+    by rewrite /bt_size_pairs /= !addnA (addnAC (size_tree _)) !(addn1, add1n).
+  have Hm: h' < h'.+1 by [].
   move: (IHh' _ Hm he vs ((t1_1, t2_1) :: (t1_2, t2_2) :: l) s0 s H1  H2 He H3) => [s' ? IH].
   exists s' => //.
   rewrite -IH.
@@ -1316,392 +1303,70 @@ Proof.
   admit.
 Abort.
 
- (*
-  move => Hu.
-  rewrite -(IH' ((t1_1, t2_1) :: (t1_2, t2_2) :: l)).
-  + rewrite [h.+1]lock /=.
-    apply: eq_bind => vars.
-    rewrite bindA [RHS]bindA !repr_btree_cons /=.
-    apply: eq_bind => _.
-    rewrite repr_btree_node.
-    apply: eq_bind => tl1.
-    rewrite [RHS]bindA.
-    apply: eq_bind => tr1.
-    rewrite [RHS]bindA.
-    apply: eq_bind => l1.
-    rewrite [RHS]bindretf repr_btree_node.
-    apply: eq_bind => tl2.
-    rewrite [RHS]bindA.
-    apply: eq_bind => tr2.
-    rewrite [RHS]bindA.
-    apply: eq_bind => l2.
-    by rewrite -{1 2}lock /= !bindretf.
-  + by rewrite -size_vars_pairs_btNode.
-  + move: Hs'; rewrite /bt_size_pairs /= ltnS.
-    apply: leq_trans => /=.
-    rewrite !subst_btNode /= !addSn addnS addSn ltnW // !ltnS !addnA.
-    by rewrite add0n addn0 (addnAC (size_tree _)).
-  + rewrite -Hu /= plusE.
-    apply: unify1_eq.
-    * by rewrite /bt_size_pairs /= !addnA (addnAC (size_tree _)) !(addn1,add1n).
-    * by rewrite addn1.
-    * by rewrite ltnS size_vars_pairs_btNode in Hs.
-  *)
+Fixpoint bt_expand_head s v : btree :=
+  match s with
+  | nil => btVar v
+  | (v', t) :: s' =>
+    if v == v' then t else bt_expand_head s' v
+  end.
 
-Lemma unifysubst h vs l s s0 :
-  h > size (vars_pairs l) ->
-  bt_unify2 h l = write M' s ->
-    cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>=
-        (unify2 h (h.+1) (bt_size_pairs (map (subst_pair s) l) + 1))
-    ) = cenv vs >>= csubst_list^~ (s0 ++ s).
-Proof.
-  elim: h l => // h IHh l Hl.
-  move Hh': (bt_size_pairs (map (subst_pair s) l) + 1) => h'.
-  have {Hh'} : h' > bt_size_pairs (map (subst_pair s) l).
-    by rewrite -Hh' addn1 ltnS.
-  elim: h' l Hl => // h' IH' [? ? []|].
-    rewrite /subst_comp cats0 => <-.
-    rewrite /repr_btree_pairs /repr_btree_list /= !bindretf /=.
-    under eq_bind do rewrite bindA bindretf /= -foldr_bindA.
-    by rewrite cats0.
-  move => t1 t2 l Hs Hs'.
-  destruct t1, t2.
-Abort.
+Fixpoint sorted_subst (s : substType) : bool :=
+  match s with
+  | nil => true
+  | (v, _) :: s' =>
+    (v \notin unzip1 s') &&
+    (btVar v \notin unzip2 s) &&
+    sorted_subst s'
+  end.
 
-(*
-(* Requires that expand_head doesn't fail *)
-(* Also requires that every get in the expand_head is inhabited,
-   so this lemma probably isn't self-contained enough for a proof (?) *)
-Lemma unify1_same h h' t l :
-  unify1
-    (expand_head h)
-    (occurs_ref h)
-    (unify2 h h h')
-    (size_pairs ((t, t) :: l)).+1 ((t, t) :: l) =
-  unify1
-    (expand_head h)
-    (occurs_ref h)
-    (unify2 h h h')
-    (size_pairs l).+1 l.
+Lemma expand_uLink A vs he v (s : substType) (k : _ -> M A):
+  size s < he ->
+  sorted_subst s ->
+  (do r <- cenv vs;
+   csubst_list r s >>
+   do x <- add_var r v;
+   expand_head he (uLink x) >>= k) =
+  (do r <- cenv vs;
+   csubst_list r s >>
+   (repr_btree r (bt_expand_head s v) >>= k)).
 Proof.
-rewrite /unify1 expand_same /=.
-elim: l => [|a l IHl] /=.
-under eq_bind => t'.
-(*
-  have -> : forall f1 f2 f3,
-      match t' with
-        | uLink v1 =>
-            match t' with
-            | uLink v2 =>
-                if loc_id v1 == loc_id v2
-                then unify1 f1 f2 f3 (size_pairs [:: (t, t)])[::]
-                else unify_link (unify2 h h) v1 t' [::]
-            | _ => occurs_ref h v1 t' >> unify_link (unify2 h h) v1 t' [::]
-            end
-        | uInt m =>
-            match t' with
-            | uLink v2 => occurs_ref h v2 t' >> unify_link (unify2 h h) v2 t' [::]
-            | uInt n =>
-                if m == n
-                then unify1 f1 f2 f3 (size_pairs [:: (t, t)]) [::]
-                else fail
-            | uNode _ _ => fail
-            end
-        | uNode tl1 tl2 =>
-            match t' with
-            | uLink v2 => occurs_ref h v2 t' >> unify_link (unify2 h h) v2 t' [::]
-            | uInt _ => fail
-            | uNode tr1 tr2 => unify1 f1 f2 f3 (size_pairs [:: (t, t)]) [:: (tl1, tr1); (tl2, tr2)]
-            end
-        end = Ret tt.
-    elim: t' => [l|n|t'] *.
-    - rewrite eqxx /size_pairs /=.
-*)
-Admitted.
-
-Lemma unify1_same_uInt h h' n l :
-  unify1
-    (expand_head h.+1)
-    (occurs_ref h.+1)
-    (unify2 h.+1 h.+1 h')
-    (size_pairs ((uInt n, uInt n) :: l)).+1 ((uInt n, uInt n) :: l) =
-  unify1
-    (expand_head h.+1)
-    (occurs_ref h.+1)
-    (unify2 h.+1 h.+1 h')
-    (size_pairs l).+1 l.
-Proof.
-rewrite [h.+1]lock [size_pairs]lock /=. 
-rewrite -{1 2}lock /= !bindretf eqxx.
-*)
-
-(*
-Lemma unifysubst h vs l s0 :
-  let m := runActionT (bt_unify2 h l) in
-  h > size (vars_pairs l) ->
-  nofailure m ->
-  exists (s : substType),
-    always (fun x : unit * substType => x.2 == s) m /\
-    cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>= [eta (unify2 h (h.+1))]
-    ) = cenv vs >>= csubst_list^~ (s0 ++ s).
-Proof.
-  elim: h l => //= h IHh l IHl.
-  move Hh': (bt_size_pairs l + 1) => h'.
-  have {Hh'} : h' > bt_size_pairs l.
-    by rewrite -Hh' addn1 ltnS.
-  elim: h' l IHl => //= h' IH' [*|].
-    exists [::]; split.
-      by rewrite runActionTret /always /assert bindretf /= bindskipf.
-    rewrite /csubst_list /= cats0.
-    by under eq_bind do rewrite bindA bindretf /= -foldr_bindA.
-  case=> t1 t2 l Hs Hs'.
-  destruct t1, t2.
-  (* LinkLink *)
-- case: ifP => vv0 Hnf.
-    move/eqP in vv0; subst v0.
-    under boolp.eq_exists => s.
-      under [X in _ /\ X = _]eq_bind => vars.
-        rewrite bindA repr_btree_cons /= [X in _ >> X]bindA.
-        under [X in _ >> X]eq_bind => l1.
-          rewrite bindretf bindA.
-          under eq_bind => l2 do rewrite bindretf.
-        over.
-        rewrite add_varD.
-        under [X in _ >> X]eq_bind => v0.
-          under eq_bind => l' do rewrite addn1 (unify1_same h.+1).
-        over.
-      over.
-    over.
-    admit.
+pose s0 : substType := [::].
+have {-1}-> : s = s0 ++ s by [].
+have: v \notin unzip1 s0 by [].
+elim: s s0 he => [|[v' t] s IH /=] s0 he Hnin.
+  rewrite cats0 => He Hsorted.
+  have -> : bt_expand_head s0 v = btVar v by admit.
+  rewrite /=.
   admit.
-  (* LinkInt *)
-- admit.
-  (* LinkNode *)
-- admit.
-  (* IntLink *)
-- admit.
-  (* IntInt *)
-- elim eq: (n == n0) => Hnf.
-    move: eq => /eqP ->.
-    under boolp.eq_exists => s.
-      under [X in _ /\ X = _]eq_bind => vars.
-        rewrite bindA repr_btree_cons /= 2!bindretf.
-        
-        (*
-        under [X in _ >> X]eq_bind => l'.
-          rewrite addn1 /unify1 !bindretf eqxx.
-        *)
-        under [X in _ >> X]eq_bind do rewrite addn1 (unify1_same h.+1) -(addn1 (size_pairs _)).
-        rewrite -bindA.
-      over.
-    over.
-    apply: IH'.
-    + exact: Hs.
-    + move: Hs'.
-      rewrite /bt_size_pairs /= [X in (1 + X < _) -> _]add1n add1n ltnS.
-      apply/ltn_trans/ltnSn.
-    + exact: Hnf.
-  (* rewrite /nofailure runActionTfail bindfailf catchfailm in Hnf. *)
-
-  (* Cannot prove that `nofailure fail` leads to contradiction *)
-
+case /boolP : (v == v').
+  case: he => // he /=.
+  rewrite ltnS.
   admit.
-  (* IntNode *)
-- admit.
-  (* NodeLink *)
-- admit.
-  (* NodeInt *)
-- admit.
-  (* NodeNode *)
-- admit.
-Abort.
-*)
-
-(*
-
-            (fun l0 : constr_list =>
-             unify1
-               (fun t : uterm =>
-                match t with
-                | uLink v =>
-                    cget v >>=
-                    (fun vt : uvar =>
-                     match vt with
-                     | uVar _ => Ret t
-                     | uTerm t' => expand_head h t'
-                     end)
-                | _ => Ret t
-                end) (fun v : loc ml_uvar => [eta occurs_ref1 (occurs_ref h) v])
-               (unify2 h.+1 h) (size_pairs l0 + 1) l0) (size_pairs x + 1) x)) =
-        cenv vs >>= csubst_list^~ (s0 ++ s)
-*)
-
-(*
-       (fun l0 : constr_list =>
-        unify1
-          (fun t : uterm =>
-           match t with
-           | uLink v =>
-               cget v >>=
-               (fun vt : uvar =>
-                match vt with
-                | uVar _ => Ret t
-                | uTerm t' => expand_head h t'
-                end)
-           | _ => Ret t
-           end) (fun v : loc ml_uvar => [eta occurs_ref1 (occurs_ref h) v])
-          (unify2 h.+1 h) (size_pairs l0 + 1) l0) (size_pairs x + 1) x)) =
-   cenv vs >>= csubst_list^~ (s0 ++ s)
-
-*)
-
-
-(*
-Lemma unifysubst h vs l :
-  let m := runActionT (bt_unify2 h l) in
-  h > size (vars_pairs l) ->
-  nofailure m ->
-  exists (s s0 : substType),
-    always (fun x : unit * substType => x.2 == s) m /\
-    cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>= [eta (unify2 h (h.+1))]
-    ) = cenv vs >>= csubst_list^~ s.
-*)
-
-(*
-Lemma unifysubst h vs l s' :
-  h > size (vars_pairs l) ->
-  bt_unify2 M' h l = write M' s' >> Ret tt ->
-  exists s s0,
-    write M' s0 >> bt_unify2 M' h l = write M' s >> Ret tt /\
-    cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>= [eta (unify2 h (h.+1))]
-    ) = cenv vs >>= csubst_list^~ s.
-Proof.
-  elim: h l => //= h IHh l IHl.
-  move Hh': (bt_size_pairs l + 1) => h'.
-  have {Hh'} : h' > bt_size_pairs l.
-    by rewrite -Hh' addn1 ltnS.
-  elim: h' l IHl => //= h' IH' [*|] /=.
-    exists [::]; exists [::]; split.
-      by rewrite write0 bindretf.
-    by rewrite /csubst_list /= bindskipf bindretf /=.
-  case=> t1 t2 l Hs Hs'.
-  destruct t1, t2 => /= Hnofail.
-- case: ifP => vv0.
-    move/eqP in vv0; subst v0.
-    under boolp.eq_exists => s.
-      under boolp.eq_exists => s0.
-        rewrite !bindA.
-        under [X in _ /\ (X = _)]eq_bind => r.
-          under eq_bind => vars.
-            rewrite -!bindA.
-    rewrite !bindA.
-    
-
-Abort.
-*)
-
-(*
-Lemma unifysubst' h vs l s'' :
-  h > size (vars_pairs l) ->
-  unif.unify2 M' h l = write M' s'' >> Ret tt ->
-  exists s s' s0,
-    unif.unify2 M' h l = write M' s >> Ret tt /\
-    (forall bt, subst_list s bt = subst_list s' bt) /\
-    cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>= [eta (unify2 h (h.+1))]
-    ) = cenv vs >>= csubst_list^~ s'.
-*)
-
-(*
-Lemma unifysubst' h vs l:
-  h > size (vars_pairs l) ->
-  (exists s', unif.unify2 M' h l = write M' s' >> Ret tt ->
-  exists s,
-    (forall bt, subst_list s bt = subst_list s' bt) /\
-    cenv vs >>= (fun vars => repr_btree_pairs vars l >>= [eta (unify2 h (h.+1))]) =
-    cenv vs >>= csubst_list^~ s).
-Proof.
-Abort.
-*)
-
-(*
-Lemma unifysubst h vs l:
-  h > size (vars_pairs l) ->
-  (exists s', unif.unify2 M' h l = write M' s' >> Ret tt) ->
-  exists s,
-    unif.unify2 M' h l = write M' s >> Ret tt /\
-    cenv vs >>= (fun vars => repr_btree_pairs vars l >>= [eta (unify2 h (h.+1))]) =
-    cenv vs >>= csubst_list^~ s.
-Proof.
-  elim: h l => //= h IHh l IHl.
-  move Hh': (unif.size_pairs l + 1) => h'.
-  have {Hh'} : h' > unif.size_pairs l.
-    by rewrite -Hh' addn1 ltnS.
-  elim: h' l IHl => //= h' IH' [*|] /=.
-    exists [::]; split.
-      by rewrite write0 bindretf.
-    by rewrite bindretf /csubst_list /=.
-  case=> t1 t2 l Hs Hs'.
-  destruct t1, t2 => /= Hnofail.
--
-Abort.
-*)
-
-(*
-Lemma unif_empty h :
-  h > 0 ->
-  unif.unify2 M' h [::] = write M' [::].
-Proof.
-move => H.
-rewrite /unif.unify2 /=.
-case:h H => // h H /=.
-by rewrite /write action0.
-Qed.
-
-Lemma unify2_equiv h bt vs l s :
-  h > size (vars_pairs l) ->
-  unif.unify2 M' h l = write M' s >> Ret tt ->
-  represents (
-    do vars <- cenv vs;
-    do r <- repr_btree_pairs vars l;
-    unify2 h (h.+1) r >> repr_btree vars bt
-  ) (subst_list s bt).
-Proof.
-  elim: h l => //= h IHh l IHl.
-
-  move Hh': (unif.size_pairs l + 1) => h'.
-  have {Hh'} : h' > unif.size_pairs l.
-    by rewrite -Hh' addn1 ltnS.
-
-  elim: h' l IHl => //= h' IH' [].
-    move => ? ? Hs.
-    under eq_bind => x do rewrite 2!bindretf /=.
-    move: Hs.
-    have ->: write M' s = write M' [::] by admit.
-    have ->: s = [::] by admit.
-    move => *.
-    exact: repr_btree_ok.
+move => Hneq He Hsort.
+have H1 : v \notin unzip1 (rcons s0 (v', t)).
+  by rewrite -cats1 /unzip1 map_cat /= mem_cat inE negb_or Hnin.
+move: (IH (rcons s0 (v', t)) he H1 (ltnW He)).
+by rewrite -cats1 -catA /= => /(_ Hsort).
 Abort.
 
-Lemma unif_equiv h bt vs bt1 bt2 s :
-  h > size (vars_pairs [:: (bt1, bt2)]) ->
-  unif.unify M' bt1 bt2 = write M' s ->
-  represents (
-    do vars <- cenv vs;
-    do t1 <- repr_btree vars bt1;
-    do t2 <- repr_btree vars bt2;
-    unify h t1 t2 >> repr_btree vars bt
-  ) (subst_list s bt).
+Lemma expand_uLink1 A vs he v t (s : substType) (k : _ -> M A):
+  0 < he ->
+  (v, t) \in s ->
+  (do r <- cenv vs;
+   csubst_list r s >>
+   do x <- add_var r v;
+   expand_head he (uLink x) >>= k) =
+  (do r <- cenv vs;
+   csubst_list r s >>
+   do x <- repr_btree r t;
+   expand_head he.-1 x >>= k).
 Proof.
+rewrite /=.
+elim: s v => //=.
 Abort.
-*)
 
 End equiv.
-*)
+
 End Unification.
 
 End CoqTypeNat.
