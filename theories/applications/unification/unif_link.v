@@ -1159,11 +1159,13 @@ Proof.
     rewrite /= /subst_pair 2!subst_btInt /bt_size_pairs /= ltnS add1n add2n in Hh'.
     exact: leq_ltn_trans.
   have H3: bt_unify2 h.+1 [seq subst_pair (push_subst s0) i | i <- l] = write M' s.
-    move: Hu.
+    move: Hu => <-.
     rewrite /= /subst_pair !subst_btInt.
-    rewrite [bt_unify1]lock.
-    rewrite /bt_size_pairs /= add1n add2n !addn1.
-    admit.
+    rewrite [bt_unify1]lock /bt_size_pairs /= add1n add2n.
+    rewrite -{-1}lock [_.+2]lock !addn1 /= eqxx -!lock.
+    by rewrite (@unify1_eq _ ((sumn [seq size_tree p.1 + size_tree p.2
+              | p <- [seq (subst_list (push_subst s0) p.1, subst_list (push_subst s0) p.2)
+                      | p <- l]]).+2)).
   have Hm: h' < h'.+1 by [].
   move: (IHh' _ Hm he vs l s0 s H1 H2 He H3) => [s' ? IH].
   exists s' => //.
@@ -1292,7 +1294,7 @@ elim: s s0 he => [|[v' t] s IH /=] s0 he Hnin.
   admit.
 case /boolP : (v == v').
   case: he => // he /=.
-  rewrite ltnS.
+  rewrite ltnS => /eqP <-.
   admit.
 move => Hneq He Hsort.
 have H1 : v \notin unzip1 (rcons s0 (v', t)).
