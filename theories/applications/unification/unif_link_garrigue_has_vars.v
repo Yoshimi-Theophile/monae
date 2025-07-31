@@ -1198,6 +1198,23 @@ rewrite (negbTE rx) /= -mem_cat /loc_id_vars -pmap_cat cat_take_drop.
 by rewrite -/loc_id_vars -lock /= andbCA [X in _ && X]Hu andbT.
 Qed.
 
+Lemma cenv_has_vars A vs (k : _ -> M A) :
+  cenv vs >>= k = do r <- cenv vs; has_vars r vs >> k r.
+Proof.
+elim/last_ind: vs k => [|vs v IH] k.
+  rewrite !bindA /=.
+  under [RHS]eq_bind do rewrite bindretf bindA.
+  rewrite cnewget /=.
+  apply: eq_bind => r.
+  by rewrite !bindretf.
+rewrite -cats1 cenv_cat bindA IH.
+rewrite [RHS]bindA [RHS]IH.
+apply: eq_bind => r.
+rewrite /= -add_var_skipE bindA bindskipf.
+rewrite [X in _ >> X]bindA [X in _ = _ >> X]bindA !bindretf.
+by rewrite has_vars_add_var cats1.
+Qed.
+
 Lemma nth_none_ltn A (s : seq (option A)) i a :
   nth None s i = Some a -> i < size s.
 Proof.
