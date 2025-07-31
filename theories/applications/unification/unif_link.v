@@ -819,19 +819,14 @@ End occurs_ref1.
 Fixpoint occurs_ref h (v : loc ml_uvar) t :=
   if h is h.+1 then occurs_ref1 (occurs_ref h) v t else fail.
 
-Section unify1.
-Variable expand_head : uterm -> M uterm.
-Variable occurs_ref : @loc _ nat ml_uvar -> uterm -> M unit.
-Variable unify2 : nat -> constr_list -> M unit.
-
-Definition unify_link (v : loc ml_uvar) t he l : M unit :=
-  cput v (uTerm t) >> unify2 he.+1 l.
+Definition unify_link (unify1 : constr_list -> _) (v : loc ml_uvar) t l : M unit :=
+  cput v (uTerm t) >> unify1 l.
 
 Fixpoint unify1 (h he : nat) (l : constr_list) : M unit :=
   if h is h.+1 then
     if l is (t1, t2) :: l' then
-      do t1 <- expand_head t1;
-      do t2 <- expand_head t2;
+      do t1 <- expand_head he t1;
+      do t2 <- expand_head he t2;
       match t1, t2 with
       | uInt m, uInt n =>
           if m == n then unify1 h he l' else fail
@@ -839,25 +834,16 @@ Fixpoint unify1 (h he : nat) (l : constr_list) : M unit :=
           unify1 h he ((tl1, tr1) :: (tl2, tr2) :: l')
       | uLink v1, uLink v2 =>
           if loc_id v1 == loc_id v2 then unify1 h he l'
-          else unify_link v1 t2 he l'
+          else unify_link (unify1 h he.+1) v1 t2 l'
       | uLink v1, _ =>
-          do _ <- occurs_ref v1 t2; unify_link v1 t2 he l'
+          do _ <- occurs_ref he v1 t2; unify_link (unify1 h he.+1) v1 t2 l'
       | _, uLink v2 =>
-          do _ <- occurs_ref v2 t1; unify_link v2 t1 he l'
+          do _ <- occurs_ref he v2 t1; unify_link (unify1 h he.+1) v2 t1 l'
       | _, _ => fail
       end
     else Ret tt
 else fail.
-End unify1.
 
-Fixpoint unify2 h h' he l : M unit :=
-  if h is h.+1 then
-    unify1
-      (expand_head he)
-      (occurs_ref he)
-      (unify2 h h')
-      h' he l
-  else fail.
 End unify.
 
 Section equiv.
@@ -1087,7 +1073,7 @@ Lemma unifysubst h h' he vs l (s0 s : substType) :
   exists2 s',
     push_subst s' = s &
     cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>= (unify2 h h' he)
+      csubst_list vars s0 >> repr_btree_pairs vars l >>= (unify1 h' he)
     ) = cenv vs >>= csubst_list^~ (s0 ++ s').
 Proof.
   elim: h h' he vs l s0 s => // h IHh.
@@ -1117,37 +1103,6 @@ Proof.
   have [->|Hneq] := eqVneq v v0.
     admit.
   admit.
-
-  (*rewrite /repr_btree_pairs {-1}[h.+1]lock [h'.+1]lock /= -lock => Hu.
-  under eq_bind => vars.
-    rewrite 4!bindA -bindA.
-    under eq_bind => ?.
-      rewrite bindretf bindA.
-      under eq_bind => l1.
-        rewrite bindretf 3!bindA.
-        under eq_bind => l0.
-          rewrite bindretf bindA.
-          under eq_bind => l2.
-          rewrite bindretf [zip _ _]/= bindretf -lock [h.+1]lock /=.
-  case: ifP => [/eqP vv0 Hu|vv0].
-    subst v0.
-    admit.*)
-
-    (*
-    under boolp.eq_exists => s.
-      under [X in _ /\ X = _]eq_bind => vars.
-        rewrite bindA repr_btree_cons /= [X in _ >> X]bindA.
-        under [X in _ >> X]eq_bind => l1.
-          rewrite bindretf bindA.
-          under eq_bind => l2 do rewrite bindretf.
-        over.
-        rewrite add_varD.
-        under [X in _ >> X]eq_bind => v0.
-          under eq_bind => l' do rewrite addn1 (unify1_same h.+1).
-        over.
-      over.
-    over.
-    *)
   (* LinkInt *)
 - move => Hu /=.
   move: (ltnm0 He) => He'.
@@ -1213,7 +1168,7 @@ Proof.
   move: (IHh' _ Hm he vs l s0 s H1 H2 He H3) => [s' ? IH].
   exists s' => //.
   rewrite /= in IH.
-  rewrite -IH [unify1]lock [unify2]lock /=.
+  rewrite -IH [unify1]lock /=.
   apply: eq_bind => vars.
   rewrite [RHS]bindA.
   apply: eq_bind => _.
@@ -1224,9 +1179,7 @@ Proof.
   rewrite bindretf -lock /=.
   move: (ltnm0 He) => He'.
   rewrite expandS_uInt => //.
-  rewrite 2!bindretf eqxx.
-  rewrite -lock /=.
-  admit.
+  by rewrite 2!bindretf eqxx.
   (* IntNode *)
 - by rewrite /subst_pair /= subst_btInt subst_btNode.
   (* NodeLink *)
@@ -1281,7 +1234,7 @@ Proof.
   exists s' => //.
   rewrite -IH.
   apply: eq_bind => vars.
-  rewrite [unify1]lock [unify2]lock.
+  rewrite [unify1]lock.
   rewrite [RHS]bindA !repr_btree_cons /=.
   apply: eq_bind => _.
   rewrite bindA.
@@ -1299,8 +1252,7 @@ Proof.
   rewrite bindretf -lock /=.
   move: (ltnm0 He) => He'.
   rewrite !expandS_uNode => //.
-  rewrite 2!bindretf -lock /=.
-  admit.
+  by rewrite 2!bindretf.
 Abort.
 
 Fixpoint bt_expand_head s v : btree :=
