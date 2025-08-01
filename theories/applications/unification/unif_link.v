@@ -1273,6 +1273,18 @@ Fixpoint sorted_subst (s : substType) : bool :=
     sorted_subst s'
   end.
 
+Lemma bt_expand_notin v (s : substType) :
+  v \notin unzip1 s ->
+  bt_expand_head s v = btVar v.
+Proof.
+elim: s => // [[v' t] l] IH.
+case /boolP : (v == v') => [/eqP <-|Hneq] /=.
+  by rewrite mem_head.
+have ->: v == v' = false by apply: (@contra_neqF _ _ v v') => [/eqP|] //.
+move => H; apply: IH; move: H.
+by rewrite /in_mem negb_or Hneq.
+Qed.
+
 Lemma expand_uLink A vs he v (s : substType) (k : _ -> M A):
   size s < he ->
   sorted_subst s ->
@@ -1288,9 +1300,7 @@ pose s0 : substType := [::].
 have {-1}-> : s = s0 ++ s by [].
 have: v \notin unzip1 s0 by [].
 elim: s s0 he => [|[v' t] s IH /=] s0 he Hnin.
-  rewrite cats0 => He Hsorted.
-  have -> : bt_expand_head s0 v = btVar v by admit.
-  rewrite /=.
+  rewrite cats0 bt_expand_notin => // He Hsorted /=.
   admit.
 case /boolP : (v == v').
   case: he => // he /=.
