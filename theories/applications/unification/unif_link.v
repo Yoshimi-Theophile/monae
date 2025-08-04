@@ -842,7 +842,7 @@ Fixpoint unify1 (h he : nat) (l : constr_list) : M unit :=
       | _, _ => fail
       end
     else Ret tt
-else fail.
+  else fail.
 
 End unify.
 
@@ -1152,7 +1152,8 @@ Proof.
   over.
   admit.
   (* IntInt *)
-- have [-> Hu|eqnn0 /=] := eqVneq n n0; last by rewrite /subst_pair !subst_btInt /= (negPf eqnn0).
+- have [-> Hu|eqnn0 /=] := eqVneq n n0;
+    last by rewrite /subst_pair !subst_btInt /= (negPf eqnn0).
   have H1: size (vars_pairs [seq subst_pair (push_subst s0) i | i <- l]) < h.+1
     by rewrite /= 2!subst_btInt /vars /= in Hh.
   have H2: bt_size_pairs [seq subst_pair (push_subst s0 ++ s) i | i <- l] < h'.
@@ -1163,9 +1164,7 @@ Proof.
     rewrite /= /subst_pair !subst_btInt.
     rewrite [bt_unify1]lock /bt_size_pairs /= add1n add2n.
     rewrite -{-1}lock [_.+2]lock !addn1 /= eqxx -!lock.
-    by rewrite (@unify1_eq _ ((sumn [seq size_tree p.1 + size_tree p.2
-              | p <- [seq (subst_list (push_subst s0) p.1, subst_list (push_subst s0) p.2)
-                      | p <- l]]).+2)).
+    exact: unify1_eq.
   have Hm: h' < h'.+1 by [].
   move: (IHh' _ Hm he vs l s0 s H1 H2 He H3) => [s' ? IH].
   exists s' => //.
