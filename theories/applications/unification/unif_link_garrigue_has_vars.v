@@ -1381,23 +1381,50 @@ elim: vars v => [|[u|] vars IH] [|v] //= H.
 - by rewrite bindskipf (IH _ H) -[RHS]bindA cchkdup.
 Qed.
 
-Lemma csubst_cgetC T A r vs (r' : loc T) t (k : _ -> _ -> M A) :
+Lemma cget_add_varC T A r (vs : seq nat) (r' : loc T) v (k : _ -> _ -> M A) :
+  v \in vs ->
+  has_vars r vs >> (do x <- cget r'; add_var r v >>= k x) =
+  has_vars r vs >> (do l <- add_var r v; cget r' >>= k ^~ l).
+Proof.
+move=> Hv.
+under (eq_bind (cget r')) do rewrite bindA.
+rewrite cgetC has_varsE bindA [RHS]bindA.
+apply: eq_bind => vars.
+rewrite 6!bindA !cputget.
+apply: bind_ext_guard => /andP[Hvars Hu].
+move/allP/(_ _ Hv): Hvars.
+case Hnth: nth => [l|] // _.
+rewrite bindretf.
+by under [in LHS](eq_bind (cget r')) do rewrite bindretf.
+Qed.
+
+Lemma cget_repr_btreeC T A r vs (r' : loc T) t (k : _ -> _ -> M A) :
   {subset free_vars t <= vs} ->
-  has_vars r vs >> (repr_btree r t >>= fun u => cget r' >>= k u) =
-  has_vars r vs >> (cget r' >>= fun s => repr_btree r t >>= k ^~ s).
+  has_vars r vs >> (cget r' >>= fun s => repr_btree r t >>= k s) =
+  has_vars r vs >> (repr_btree r t >>= fun u => cget r' >>= k ^~ u).
 Proof.
 elim: t k => [v|n|t1 IH1 t2 IH2] k /= Hvs.
 - rewrite bindA.
-  under (eq_bind (add_var r v)) do rewrite bindretf.
-  rewrite has_varsE bindA [RHS]bindA.
-  apply: eq_bind => vars.
-  rewrite 3!bindA 2![in RHS]bindA.
-  apply: bind_ext_guard => /andP[Hvars Hu].
-  rewrite bindA cputget.
-  have Hv: v \in vs by rewrite Hvs // mem_seq1 eqxx.
-  move/allP/(_ _ Hv): Hvars.
-  case Hnth: nth => [l|] // _.
-  rewrite bindretf.
+  under [in LHS](eq_bind (cget r')) do
+      (rewrite bindA; under eq_bind do rewrite bindretf).
+  rewrite cget_add_varC; last exact/Hvs/mem_head.
+  by under [X in _ = _ >> X]eq_bind do rewrite bindretf.
+- under (eq_bind (cget r')) do rewrite bindretf.
+  by rewrite bindretf.
+- rewrite bindA.
+  under (eq_bind (cget r')) do rewrite bindA.
+  have Ht1: {subset free_vars t1 <= vs}.
+    by move=> x Hx; rewrite Hvs // mem_cat Hx.
+  rewrite IH1 // has_vars_repr_btreeC has_vars_subset //.
+  under (eq_bind (repr_btree r t1)) => u1.
+    under (eq_bind (cget r')) do
+      (rewrite bindA; under eq_bind do rewrite bindretf).
+    rewrite IH2; first over.
+    by move=> x Hx; rewrite Hvs // mem_cat Hx orbT.
+  under [X in _ = _ >> X]eq_bind => u1 do
+    (rewrite bindA; under eq_bind => u do rewrite bindretf).
+  by rewrite [RHS]has_vars_repr_btreeC has_vars_subset.
+Qed.
 
 Lemma add_var_repr_btreeC A r vs v t (k : _ -> _ -> M A) :
   {subset free_vars t <= vs} ->
@@ -1491,6 +1518,132 @@ rewrite bindA.
 apply: eq_bind => l'.
 rewrite !bindA !bindretf -bindA cputC //; last by left.
 by rewrite bindA.
+Qed.
+
+Lemma free_vars_subst_subset (s1 s2 : substType) :
+  {subset s1 <= s2} -> {subset free_vars_subst s1 <= free_vars_subst s2}.
+Proof.
+rewrite /free_vars_subst.
+elim: s1 => //= -[v t] s1 IH /= Hs2 x.
+rewrite !inE !mem_cat => /orP[/eqP ->|].
+  by move: (Hs2 _ (mem_head _ _)) => /(map_f fst) /= ->.
+case/orP.
+  case/mapP => y Hy ->.
+  by move: (Hs2 y (mem_tail _ Hy)) => /(map_f fst) ->.
+case/orP => Hx.
+  apply/orP; right.
+  apply/flattenP.
+  exists (free_vars t) => //.
+  exact/map_f/(map_f snd (x:=(v,t)))/Hs2/mem_head.
+rewrite -mem_cat.
+apply: IH.
+  by move=> y Hy; rewrite Hs2 // inE Hy orbT.
+by rewrite mem_cat Hx orbT.
+Qed.
+
+Lemma sub_trans T : Relation_Definitions.transitive _ (@sub_mem T).
+Proof. by move=> X Y Z xy yz x /xy /yz. Qed.
+
+Lemma csubst_list_add_varC A r vs s v (k : _ -> M A) :
+  {subset free_vars_subst s <= vs} ->
+  has_vars r vs >> (csubst_list r s >> (add_var r v >>= k)) =
+  has_vars r vs >> (add_var r v >>= fun u => csubst_list r s >> k u).
+Proof.
+elim: s k => [|[v' t] s IH] k Hvs.
+  rewrite bindskipf.
+  by under [X in _ = _ >> X]eq_bind do rewrite bindretf.
+rewrite /csubst_list /= -/(csubst_list r s).
+have Hsub': {subset v' :: free_vars t <= vs}.
+  apply: sub_trans Hvs => x; rewrite /free_vars_subst /= !inE !mem_cat.
+  by case/orP => -> //; rewrite !orbT.
+rewrite bindA -(bindA (has_vars _ _)) has_vars_csubstC //.
+rewrite 2!bindA IH; last first.
+  apply: sub_trans Hvs => x; rewrite /free_vars_subst /= !inE !mem_cat.
+  by case/orP => ->; rewrite ?orbT.
+rewrite -2!bindA (bindA (has_vars _ _)) -has_vars_csubstC //.
+rewrite bindA csubst_add_varC //.
+by under [X in _ = _ >> X]eq_bind do rewrite bindA.
+Qed.
+
+Lemma get_var_csubstC A r vs v v' t (k : _ -> _ -> M A) :
+  {subset v :: v' :: free_vars t <= vs} ->
+  v != v' ->
+  has_vars r vs >> (do l <- add_var r v; do x <- cget l; csubst r v' t >> k l x)
+  = has_vars r vs >> (csubst r v' t >> do l <- add_var r v; cget l >>= k l).
+Proof.
+move=> Hvs vv'.
+have Hfv: {subset free_vars t <= vs}.
+  by move=> x Hx; rewrite Hvs // !inE Hx !orbT.
+rewrite csubst_add_varC; last first.
+  by move=> x Hx; rewrite Hvs // inE Hx orbT.
+rewrite has_vars_add_var.
+under (eq_bind (add_var r v)) => l.
+  under (eq_bind (cget l)) do rewrite bindA.
+  rewrite cget_repr_btreeC; first over.
+  by move=> x Hx; rewrite mem_rcons inE Hfv // orbT.
+rewrite -has_vars_add_var.
+rewrite -add_var_repr_btreeC //.
+under (eq_bind (add_var r v)) => l do rewrite bindA.
+rewrite -add_var_repr_btreeC //.
+rewrite has_vars_repr_btreeC [RHS]has_vars_repr_btreeC.
+apply: eq_bind => _.
+apply: eq_bind => u.
+rewrite has_vars_subset //.
+rewrite has_varsE bindA [RHS]bindA.
+apply: eq_bind => vars.
+rewrite 3!bindA 2![in RHS]bindA.
+apply: bind_ext_guard => /andP[Hvars Hu].
+rewrite bindA [in RHS]bindA !cputget.
+have Hvvs : v \in vs by apply: Hvs; rewrite !inE eqxx.
+move/allP/(_ _ Hvvs): (Hvars).
+case Hnth: nth => [l|] // _.
+have rl: loc_id r != loc_id l.
+  case/andP: Hu => Hr _.
+  apply: contra Hr => /eqP ->.
+  by rewrite mem_loc_id_vars // (mem_nth_some Hnth).
+rewrite !bindretf cputgetC //.
+under [in LHS](eq_bind (cget l)) do rewrite 2!bindA cputget.
+rewrite 2![in RHS]bindA cputget.
+have Hv'vs : v' \in vs by apply: Hvs; rewrite !inE eqxx orbT.
+move/allP/(_ _ Hv'vs): (Hvars).
+case Hnth': nth => [l'|] // _.
+rewrite bindretf.
+under (eq_bind (cget l)) do rewrite bindretf.
+rewrite -cputgetC // -cputgetC // eq_sym.
+apply: (uniq_loc_vars_some _ Hnth Hnth') => //.
+by case/andP: Hu.
+Qed.
+
+Lemma get_var_csubst_listC A r vs v (s : substType) (k : _ -> _ -> M A) :
+  {subset v :: free_vars_subst s <= vs} ->
+  v \notin unzip1 s ->
+  has_vars r vs >>
+  (do l <- add_var r v; do x <- cget l; csubst_list r s >> k l x) =
+  has_vars r vs >> (csubst_list r s >> do l <- add_var r v; cget l >>= k l).
+Proof.
+elim: s k => [|[v' t] s IH] k Hsub Hv.
+  under [X in _ >> X]eq_bind do under eq_bind do rewrite bindskipf.
+  by rewrite bindskipf.
+rewrite /csubst_list /= -/(csubst_list r s).
+symmetry.
+have Hsub': {subset v' :: free_vars t <= vs}.
+  move=> x Hx; rewrite Hsub // /free_vars_subst /= !inE !mem_cat.
+  rewrite (orbCA (x \in unzip1 s)) (orbA (x == v')) -in_cons.
+  by rewrite Hx orbT.
+rewrite bindA -[LHS]bindA has_vars_csubstC // 2!bindA -IH; first last.
+- by apply: contra Hv; rewrite /= inE orbC => ->.
+- move=> x Hx; apply: Hsub.
+  move: Hx; rewrite 2!inE => /orP[-> // | Hx].
+  apply/orP; right; apply/(free_vars_subst_subset _ Hx).
+  by move=> y; rewrite inE orbC => ->.
+rewrite -2!bindA (bindA (has_vars _ _)) -has_vars_csubstC //.
+rewrite bindA -get_var_csubstC.
+- by under [X in _ = _ >> X]eq_bind do under eq_bind do rewrite bindA.
+- move=> x; rewrite inE => /orP[] Hx.
+    by rewrite Hsub // inE Hx.
+  exact: Hsub'.
+- apply: contra Hv => /eqP <- /=.
+  by rewrite inE eqxx.
 Qed.
 
 Definition vars_subst '(v, t) := rcons (free_vars t) v.
@@ -1785,25 +1938,12 @@ move => H; apply: IH; move: H.
 by rewrite /in_mem negb_or Hneq.
 Qed.
 
-Lemma free_vars_subst_subset (s1 s2 : substType) :
-  {subset s1 <= s2} -> {subset free_vars_subst s1 <= free_vars_subst s2}.
+Lemma cenv_rcons A vs v (k : _ -> M A) :
+  (cenv (rcons vs v) >>= k) = do r <- cenv vs; add_var r v >> k r.
 Proof.
-rewrite /free_vars_subst.
-elim: s1 => //= -[v t] s1 IH /= Hs2 x.
-rewrite !inE !mem_cat => /orP[/eqP ->|].
-  by move: (Hs2 _ (mem_head _ _)) => /(map_f fst) /= ->.
-case/orP.
-  case/mapP => y Hy ->.
-  by move: (Hs2 y (mem_tail _ Hy)) => /(map_f fst) ->.
-case/orP => Hx.
-  apply/orP; right.
-  apply/flattenP.
-  exists (free_vars t) => //.
-  exact/map_f/(map_f snd (x:=(v,t)))/Hs2/mem_head.
-rewrite -mem_cat.
-apply: IH.
-  by move=> y Hy; rewrite Hs2 // inE Hy orbT.
-by rewrite mem_cat Hx orbT.
+rewrite -cats1 cenv_cat bindA.
+apply: eq_bind => r /=.
+by rewrite -add_var_skipE bindA bindskipf bindA bindretf.
 Qed.
 
 Lemma expand_uLink A vs he v (s : substType) (k : _ -> M A):
@@ -1821,7 +1961,7 @@ Proof.
 pose s0 : substType := [::].
 have {-1}-> : s = s0 ++ s by [].
 have: v \notin unzip1 s0 by [].
-elim: s s0 he => [|[v' t] s IH /=] s0 he Hnin.
+elim: s s0 he v => [|[v' t] s IH /=] s0 he v Hnin.
   rewrite cats0 bt_expand_notin => // He Hsorted Hsub /=.
   case: he He => //= he _.
   elim/last_ind: s0 (expand_head he) Hnin Hsorted Hsub
@@ -1832,45 +1972,56 @@ elim: s s0 he => [|[v' t] s IH /=] s0 he Hnin.
   rewrite cenv_has_vars.
   under eq_bind => r.
     rewrite /csubst_list map_rcons foldr_rcons foldr_bindA bindmskip bindA /=.
-    rewrite -bindA has_vars_csubst_listC //; first last.
+    rewrite -(add_varD r v (fun v v => _ >>= _)).
+    have Hfvs0: {subset free_vars_subst s0 <= vs}.
       move=> x Hx; apply/Hsub/(free_vars_subst_subset _ Hx) => y Hy.
       by rewrite mem_rcons in_cons Hy orbT.
-    rewrite 2!bindA csubst_add_varC; last first.
+    rewrite -bindA has_vars_csubst_listC //.
+    have Hvs': {subset v' :: free_vars t' <= vs}.
       have -> : v' :: free_vars t' = free_vars_subst [:: (v',t')].
         by rewrite /free_vars_subst /= cats0.
       move=> x Hx; apply/Hsub/(free_vars_subst_subset _ Hx).
         by move=> y; rewrite mem_seq1 mem_rcons inE => ->.
-    rewrite has_vars_add_var.
- (x:=[::(v',t')])).
-      move=> x Hx; rewrite Hsub // /free_vars_subst. -cats1 !mem_cat. !mem_map.
-      
-    Search add_var csubst.
-  admit.
-case /boolP : (v == v').
-  case: he => // he /=.
-  rewrite ltnS => /eqP <-.
-  admit.
-move => Hneq He Hsort.
-have H1 : v \notin unzip1 (rcons s0 (v', t)).
-  by rewrite -cats1 /unzip1 map_cat /= mem_cat inE negb_or Hnin.
-move: (IH (rcons s0 (v', t)) he H1 (ltnW He)).
-by rewrite -cats1 -catA /= => /(_ Hsort).
-Abort.
-
-Lemma expand_uLink1 A vs he v t (s : substType) (k : _ -> M A):
-  0 < he ->
-  (v, t) \in s ->
-  (do r <- cenv vs;
-   csubst_list r s >>
-   do x <- add_var r v;
-   expand_head he (uLink x) >>= k) =
-  (do r <- cenv vs;
-   csubst_list r s >>
-   do x <- repr_btree r t;
-   expand_head he.-1 x >>= k).
-Proof.
-rewrite /=.
-elim: s v => //=.
+    rewrite 2!bindA csubst_add_varC //.
+    rewrite -2!bindA (bindA (has_vars _ _)) -has_vars_csubst_listC // bindA.
+    rewrite csubst_list_add_varC // has_vars_add_var.
+    under (eq_bind (add_var r v)) => ?.
+    rewrite -bindA has_vars_csubst_listC; last first.
+      by apply/(sub_trans Hfvs0) => x Hx; rewrite mem_rcons inE Hx orbT.
+    rewrite 2!bindA.
+    under (eq_bind (add_var r v)) do rewrite bindA.
+    rewrite -get_var_csubstC; first last.
+    - apply: contra Hnin => /eqP <-.
+      by rewrite (@map_f _ _ fst _ (v,t')) // mem_rcons inE eqxx.
+    - move=> x; rewrite inE mem_rcons (in_cons v) => /orP[-> //|].
+      by move/Hvs' => ->; rewrite orbT.
+    rewrite -2!bindA (bindA (has_vars _ _)) -has_vars_csubst_listC; last first.
+      by move=> x /Hfvs0; rewrite mem_rcons inE orbC => ->.
+    rewrite bindA -get_var_csubst_listC; first last.
+    - apply: contra Hnin => Hx.
+      by rewrite /unzip1 map_rcons mem_rcons inE Hx orbT.
+    - move=> x; rewrite inE mem_rcons inE => /orP[->|] // /Hfvs0 ->.
+      by rewrite orbT.
+    over.
+    over.
+  rewrite -cenv_has_vars -cenv_rcons -cenv_has_vars.
+  rewrite cenv_add_var_get.
+  symmetry.
+  rewrite [LHS]cenv_has_vars.
+  under eq_bind => r.
+    rewrite bindA csubst_list_add_varC //.
+    under (eq_bind (add_var r v)) do
+      rewrite /csubst_list map_rcons foldr_rcons foldr_bindA bindmskip bindA /=.
+    rewrite -/(csubst_list r s0).
+    rewrite -(add_varD r v (fun v v => _ >>= _)).
+    over.
+  by rewrite -cenv_has_vars -cenv_rcons.
+move => He Hsort Hsub.
+case/boolP: (v == v') => vv'; last first.
+  have H1 : v \notin unzip1 (rcons s0 (v', t)).
+    by rewrite -cats1 /unzip1 map_cat /= mem_cat inE negb_or Hnin.
+  move: (IH (rcons s0 (v', t)) he v H1 (ltnW He)).
+  by rewrite -cats1 -catA /= => /(_ Hsort) ->.
 Abort.
 
 End equiv.
