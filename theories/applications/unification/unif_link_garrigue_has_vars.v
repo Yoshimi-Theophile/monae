@@ -1614,6 +1614,13 @@ apply: (uniq_loc_vars_some _ Hnth Hnth') => //.
 by case/andP: Hu.
 Qed.
 
+Lemma csubst_get_var A r vs v t (k : _ -> _ -> M A) :
+  {subset v :: free_vars t <= vs} ->
+  has_vars r vs >> (csubst r v t >> do l <- add_var r v; cget l >>= k l) =
+  has_vars r vs >>
+  (csubst r v t >> do u <- repr_btree r t; do l <- add_var r v; k l (uTerm u)).
+Admitted.
+
 Lemma get_var_csubst_listC A r vs v (s : substType) (k : _ -> _ -> M A) :
   {subset v :: free_vars_subst s <= vs} ->
   v \notin unzip1 s ->
@@ -1910,12 +1917,19 @@ Proof.
   by rewrite 2!bindretf.
 Abort.
 
-Fixpoint bt_expand_head s v : btree :=
-  match s with
-  | nil => btVar v
-  | (v', t) :: s' =>
-    if v == v' then t else bt_expand_head s' v
-  end.
+Fixpoint bt_expand_head s t : btree :=
+  if t is btVar v then
+    match s with
+    | nil => t
+    | (v', t') :: s' => bt_expand_head s' (if v == v' then t' else t)
+    end
+  else t.
+
+(*
+Lemma bt_expand_head_first (s0 s : substType) v t :
+  v \notin unzip1 s0 ->
+  bt_expand_head (s0 ++ (v, t) :: s) v = bt_expand_head
+*)
 
 Fixpoint sorted_subst (s : substType) : bool :=
   match s with
@@ -1926,14 +1940,28 @@ Fixpoint sorted_subst (s : substType) : bool :=
     sorted_subst s'
   end.
 
+Lemma sorted_subst_cat (s1 s2 : substType) :
+  sorted_subst (s1 ++ s2) -> sorted_subst s2.
+Proof. by elim: s1 => // -[v t] s1 IH /= /andP[_]. Qed.
+
+Lemma sorted_subst_shrink (s1 s2 : substType) vt :
+  sorted_subst (s1 ++ vt :: s2) -> sorted_subst (s1 ++ s2).
+Proof.
+case: vt => v t.
+elim: s1 => /= [|[v' t'] s1 IH] /andP[] // /andP[].
+rewrite /unzip1 /unzip2 /= !map_cat !mem_cat 2!negb_or => /andP[] -> /=.
+rewrite inE negb_or => /andP[_] -> /=.
+by rewrite 5!(inE,mem_cat) 5!negb_or => /andP[->] /andP[->] /andP[_]->.
+Qed.
+
 Lemma bt_expand_notin v (s : substType) :
   v \notin unzip1 s ->
-  bt_expand_head s v = btVar v.
+  bt_expand_head s (btVar v) = btVar v.
 Proof.
 elim: s => // [[v' t] l] IH.
 case /boolP : (v == v') => [/eqP <-|Hneq] /=.
   by rewrite mem_head.
-have ->: v == v' = false by apply: (@contra_neqF _ _ v v') => [/eqP|] //.
+have -> //: v == v' = false by apply: (@contra_neqF _ _ v v') => [/eqP|] //.
 move => H; apply: IH; move: H.
 by rewrite /in_mem negb_or Hneq.
 Qed.
@@ -1956,10 +1984,10 @@ Lemma expand_uLink A vs he v (s : substType) (k : _ -> M A):
    expand_head he (uLink x) >>= k) =
   (do r <- cenv vs;
    csubst_list r s >>
-   (repr_btree r (bt_expand_head s v) >>= k)).
+   (repr_btree r (bt_expand_head s (btVar v)) >>= k)).
 Proof.
 pose s0 : substType := [::].
-have {-1}-> : s = s0 ++ s by [].
+have {-1 6}-> : s = s0 ++ s by [].
 have: v \notin unzip1 s0 by [].
 elim: s s0 he v => [|[v' t] s IH /=] s0 he v Hnin.
   rewrite cats0 bt_expand_notin => // He Hsorted Hsub /=.
@@ -2022,6 +2050,37 @@ case/boolP: (v == v') => vv'; last first.
     by rewrite -cats1 /unzip1 map_cat /= mem_cat inE negb_or Hnin.
   move: (IH (rcons s0 (v', t)) he v H1 (ltnW He)).
   by rewrite -cats1 -catA /= => /(_ Hsort) ->.
+move/eqP in vv'; subst v'.
+have Hvns : v \notin unzip1 s.
+  by move/sorted_subst_cat: Hsort => /= /andP[] /andP[].
+have Hfvs0 : {subset free_vars_subst s0 <= vs}.
+  apply: sub_trans Hsub; apply: free_vars_subst_subset => x Hx.
+  by rewrite mem_cat Hx.
+have Hfvt : {subset v :: free_vars t <= vs}.
+  apply: sub_trans Hsub => x Hx.
+  rewrite /free_vars_subst mem_cat /unzip1 map_cat /= mem_cat inE.
+  rewrite /unzip2 !map_cat /= flatten_cat /= !mem_cat.
+  by move: Hx; rewrite inE => /orP[] ->; rewrite !orbT.
+have Hfvs : {subset v :: free_vars_subst s <= vs}.
+  apply: sub_trans Hsub => x; rewrite inE => /orP[].
+    rewrite /free_vars_subst /unzip1 map_cat /= !mem_cat inE => ->.
+    by rewrite !orbT.
+  by apply: free_vars_subst_subset => y Hy; rewrite mem_cat inE Hy !orbT.
+rewrite cenv_has_vars.
+case: he He => // he He /=.
+under eq_bind => r.
+  rewrite /csubst_list map_cat foldr_cat foldr_bindA /=
+          -/(csubst_list r s0) -/(csubst_list r s).
+  rewrite 2!bindA -bindA has_vars_csubst_listC //.
+  rewrite 2!bindA -[X in _ >> ( _ >> X)]bindA has_vars_csubstC // 2!bindA.
+  under (eq_bind (add_var r v)) do rewrite bindA.
+  rewrite -get_var_csubst_listC //.
+  rewrite -2![X in _ >> ( _ >> X)]bindA (bindA (has_vars _ _)).
+  rewrite -has_vars_csubstC // bindA.
+  rewrite csubst_get_var //.
+  over.
+
+Search csubst add_var.
 Abort.
 
 End equiv.
