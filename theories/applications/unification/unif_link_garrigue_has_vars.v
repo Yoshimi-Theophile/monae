@@ -1799,207 +1799,13 @@ elim: t h => /= [|[x y] t IH] h.
 by rewrite IH /= size_rcons addnS.
 Qed.
 
-(* Lemma expand_head expand_head (locked h.+1) (uLink _x_ *)
-
 Lemma ltnm0 (n m : nat) : m < n -> 0 < n.
 Proof. exact: leq_ltn_trans. Qed.
 
-Lemma expandS_uInt he n : 0 < he -> expand_head he (uInt n) = Ret (uInt n).
-Proof. by case: he. Qed.
+Definition not_uLink u := if u is uLink _ then false else true.
 
-Lemma expandS_uNode he t1 t2 : 0 < he -> expand_head he (uNode t1 t2) = Ret (uNode t1 t2).
-Proof. by case: he. Qed.
-
-Lemma unifysubst h h' he vs l (s0 s : substType) :
-  h > size (vars_pairs (map (subst_pair (push_subst s0)) l)) ->
-  h' > bt_size_pairs (map (subst_pair (push_subst s0 ++ s)) l) ->
-  he > size s0 ->
-  bt_unify2 h (map (subst_pair (push_subst s0)) l) = write M' s ->
-  exists2 s',
-    push_subst s' = s &
-    cenv vs >>= (fun vars =>
-      csubst_list vars s0 >> repr_btree_pairs vars l >>= (unify1 h' he)
-    ) = cenv vs >>= csubst_list^~ (s0 ++ s').
-Proof.
-  elim: h h' he vs l s0 s => // h IHh.
-  elim/ltn_ind => h' IHh' he vs [/=|[t1 t2] l] s0 s.
-    case: h' IHh' => // h' IHh' _ _ He [].
-    rewrite [RHS]cats0 => <-.
-    exists nil => //.
-    under eq_bind do rewrite /repr_btree_pairs bindA !bindretf /= -foldr_bindA.
-    by rewrite cats0.
-  move=> Hh Hh' He.
-  under eq_bind => vars do rewrite bindA repr_btree_cons /=.
-  rewrite /repr_btree_pairs /=.
-  case: h' Hh' IHh' => // h' Hh' IHh'.
-  destruct t1, t2.
-(* LinkLink *)
-- move => Hu /=.
-  under eq_bind => vars.
-    rewrite bindA.
-    under [X in _ >> X]eq_bind => x.
-      rewrite bindretf.
-      under eq_bind => l1.
-        rewrite bindA.
-        under eq_bind => x' do rewrite bindretf.
-      over.
-    over.
-  over.
-  have [->|Hneq] := eqVneq v v0.
-    admit.
-  admit.
-  (* LinkInt *)
-- move => Hu /=.
-  move: (ltnm0 He) => He'.
-  under eq_bind => vars.
-    rewrite bindA.
-    under [X in _ >> X]eq_bind => x.
-      rewrite bindretf.
-      under eq_bind => l1.
-        rewrite bindretf expandS_uInt => //.
-        under eq_bind => l2 do under eq_bind => t1 do rewrite bindretf.
-      over.
-    over.
-  over.
-  admit.
-  (* LinkNode *)
-- move => Hu /=.
-  move: (ltnm0 He) => He'.
-  under eq_bind => vars.
-    rewrite bindA.
-    under [X in _ >> X]eq_bind => x.
-      rewrite bindretf.
-      under eq_bind => l1.
-        rewrite bindA.
-        under eq_bind => t0.
-          rewrite bindA.
-          under eq_bind => t1.
-            rewrite bindretf expandS_uNode => //.
-            under eq_bind => l2 do under eq_bind => t2 do rewrite bindretf.
-          over.
-        over.
-      over.
-    over.
-  over.
-  admit.
-  (* IntLink *)
-- move => Hu /=.
-  move: (ltnm0 He) => He'.
-  under eq_bind => vars.
-    rewrite bindretf expandS_uInt => //.
-    under [X in _ >> X]eq_bind => l1.
-      rewrite bindA.
-      under eq_bind => x.
-        rewrite bindretf.
-        under eq_bind => l2 do rewrite bindretf.
-      over.
-    over.
-  over.
-  admit.
-  (* IntInt *)
-- have [-> Hu|eqnn0 /=] := eqVneq n n0;
-    last by rewrite /subst_pair !subst_btInt /= (negPf eqnn0).
-  have H1: size (vars_pairs [seq subst_pair (push_subst s0) i | i <- l]) < h.+1
-    by rewrite /= 2!subst_btInt /vars /= in Hh.
-  have H2: bt_size_pairs [seq subst_pair (push_subst s0 ++ s) i | i <- l] < h'.
-    rewrite /= /subst_pair 2!subst_btInt /bt_size_pairs /= ltnS add1n add2n in Hh'.
-    exact: leq_ltn_trans.
-  have H3: bt_unify2 h.+1 [seq subst_pair (push_subst s0) i | i <- l] = write M' s.
-    move: Hu => <-.
-    rewrite /= /subst_pair !subst_btInt.
-    rewrite [bt_unify1]lock /bt_size_pairs /= add1n add2n.
-    rewrite -{-1}lock [_.+2]lock !addn1 /= eqxx -!lock.
-    exact: unify1_eq.
-  have Hm: h' < h'.+1 by [].
-  move: (IHh' _ Hm he vs l s0 s H1 H2 He H3) => [s' ? IH].
-  exists s' => //.
-  rewrite /= in IH.
-  rewrite -IH [unify1]lock /=.
-  apply: eq_bind => vars.
-  rewrite [RHS]bindA.
-  apply: eq_bind => _.
-  rewrite bindretf [RHS]bindA.
-  apply: eq_bind => l1.
-  rewrite bindretf [RHS]bindA.
-  apply: eq_bind => l2.
-  rewrite bindretf -lock /=.
-  move: (ltnm0 He) => He'.
-  rewrite expandS_uInt => //.
-  by rewrite 2!bindretf eqxx.
-  (* IntNode *)
-- by rewrite /subst_pair /= subst_btInt subst_btNode.
-  (* NodeLink *)
-- move => Hu /=.
-  move: (ltnm0 He) => He'.
-  under eq_bind => vars.
-    rewrite bindA.
-    under [X in _ >> X]eq_bind => t0.
-      rewrite bindA.
-      under eq_bind => t1.
-        rewrite bindretf expandS_uNode => //.
-        under eq_bind => l1.
-          rewrite bindA.
-          under eq_bind => x.
-            rewrite bindretf.
-            under eq_bind => l2 do rewrite bindretf.
-          over.
-        over.
-      over.
-    over.
-  over.
-  admit.
-  (* NodeInt *)
-- by rewrite /subst_pair /= subst_btNode subst_btInt.
-  (* NodeNode *)
-- move => Hu.
-  rewrite /= /subst_pair !subst_btNode /= -addnE in Hu.
-  have H1:
-    size (vars_pairs
-      [seq subst_pair (push_subst s0) i
-        | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]]) < h.+1.
-    rewrite /= /subst_pair !subst_btNode in Hh.
-    by rewrite -size_vars_pairs_btNode.
-  have H2:
-    bt_size_pairs
-      [seq subst_pair (push_subst s0 ++ s) i
-        | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]] < h'.
-    move: Hh'.
-    rewrite /bt_size_pairs /= 2!subst_btNode /= !addnA (addnAC (size_tree _)) !(addn1, add1n) ltnS.
-    exact: leq_ltn_trans.
-  have H3:
-    bt_unify2 h.+1
-      [seq subst_pair (push_subst s0) i
-        | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]] =
-    write M' s.
-    rewrite -Hu.
-    apply: unify1_eq => //=; last first.
-      by rewrite addn1.
-    by rewrite /bt_size_pairs /= !addnA (addnAC (size_tree _)) !(addn1, add1n).
-  have Hm: h' < h'.+1 by [].
-  move: (IHh' _ Hm he vs ((t1_1, t2_1) :: (t1_2, t2_2) :: l) s0 s H1  H2 He H3) => [s' ? IH].
-  exists s' => //.
-  rewrite -IH.
-  apply: eq_bind => vars.
-  rewrite [unify1]lock.
-  rewrite [RHS]bindA !repr_btree_cons /=.
-  apply: eq_bind => _.
-  rewrite bindA.
-  apply: eq_bind => tl1.
-  rewrite bindA [RHS]bindA.
-  apply: eq_bind => tl2.
-  rewrite bindretf [RHS]bindA.
-  apply: eq_bind => l1.
-  rewrite bindretf bindA.
-  apply: eq_bind => tr1.
-  rewrite bindA [RHS]bindA.
-  apply: eq_bind => tr2.
-  rewrite bindretf [RHS]bindA.
-  apply: eq_bind => l2.
-  rewrite bindretf -lock /=.
-  move: (ltnm0 He) => He'.
-  rewrite !expandS_uNode => //.
-  by rewrite 2!bindretf.
-Abort.
+Lemma expand_head_not_uLink he u : not_uLink u -> expand_head he u = Ret u.
+Proof. by case: u => // *; case: he. Qed.
 
 Fixpoint bt_expand_head s t : btree :=
   if t is btVar v then
@@ -2009,11 +1815,22 @@ Fixpoint bt_expand_head s t : btree :=
     end
   else t.
 
-(*
-Lemma bt_expand_head_first (s0 s : substType) v t :
-  v \notin unzip1 s0 ->
-  bt_expand_head (s0 ++ (v, t) :: s) v = bt_expand_head
-*)
+Definition not_btVar t := if t is btVar _ then false else true.
+
+Lemma bt_expand_head_not_btVar s t : not_btVar t -> bt_expand_head s t = t.
+Proof. by case: t => // *; case: s. Qed.
+
+Lemma repr_btree_not_btVar A r t (k : _ -> M A) :
+  not_btVar t ->
+  repr_btree r t >>= k =
+  repr_btree r t >>= fun u => guard (not_uLink u) >> k u.
+Proof.
+case: t => //= *.
+  by rewrite !bindretf.
+rewrite !bindA; apply: eq_bind => u1.
+rewrite !bindA; apply: eq_bind => u2.
+by rewrite !bindretf.
+Qed.
 
 Fixpoint sorted_subst (s : substType) : bool :=
   match s with
@@ -2077,7 +1894,26 @@ Proof. by rewrite /csubst_list map_cat foldr_cat foldr_bindA. Qed.
 Lemma csubst_list_seq1 r v t :
   csubst_list r [:: (v,t)] = csubst r v t.
 Proof. exact: bindmskip. Qed.
- 
+
+Lemma expand_uLink_not_btVar A vs he t s s' (k : _ -> M A) :
+  not_btVar t ->
+  (do r <- cenv vs;
+   csubst_list r s >>
+   do u <- repr_btree r t;
+   expand_head he u >>= k) =
+  (do r <- cenv vs;
+   csubst_list r s >>
+   (repr_btree r (bt_expand_head s' t) >>= k)).
+Proof.
+move=> nvar.
+apply: eq_bind => r.
+apply: eq_bind => _.
+rewrite bt_expand_head_not_btVar //.
+rewrite repr_btree_not_btVar // [RHS]repr_btree_not_btVar //.
+apply: eq_bind => u.
+by under bind_ext_guard => Hu do rewrite expand_head_not_uLink // bindretf.
+Qed.
+
 Lemma expand_uLink A vs he t (s : substType) (k : _ -> M A):
   size s < he ->
   sorted_subst s ->
@@ -2090,37 +1926,20 @@ Lemma expand_uLink A vs he t (s : substType) (k : _ -> M A):
    csubst_list r s >>
    (repr_btree r (bt_expand_head s t) >>= k)).
 Proof.
-case Ht: t => [v|n|t1 t2]; first last.
-- move=> He Hs Hsub /=.
-  apply: eq_bind => r.
-  apply: eq_bind => _.
-  case: he He => // he He /=.
-  rewrite bindA.
-  under eq_bind do (rewrite bindA; under eq_bind do rewrite bindretf).
-  case: s He {Hs Hsub} => [|[v' t'] s] /=;
-  rewrite [RHS]bindA;
-  by under [RHS]eq_bind do rewrite bindA.
-- move=> He Hs Hsub /=.
-  apply: eq_bind => r.
-  apply: eq_bind => _.
-  case: he He => // he He /=.
-  rewrite bindretf.
-  by case: s He {Hs Hsub}.
+case/boolP: (not_btVar t); first by move=> *; apply: expand_uLink_not_btVar.
+case Ht: t => [v|n|t1 t2] // _.
 rewrite -Ht.
 pose s0 : substType := [::].
 have {-1 6}-> : s = s0 ++ s by [].
 have: v \notin unzip1 s0 by [].
-elim: s s0 he v t Ht=> [|[v' t'] s IH /=] s0 he v t Ht Hnin.
+elim: s s0 he v t Ht => [|[v' t'] s IH /=] s0 he v t Ht Hnin.
   rewrite cats0 Ht bt_expand_notin => // He Hsorted Hsub /=.
   case: he He => //= he _.
   under eq_bind => r do
     (rewrite bindA; under (eq_bind (add_var r v)) do rewrite bindretf bindA).
-  under [RHS]eq_bind => r do rewrite bindA.
   rewrite cenv_has_vars.
-  under eq_bind => r.
-    rewrite -(add_varD r v (fun l l => _ >>= _)).
-    rewrite csubst_list_add_varC //.
-    over.
+  under eq_bind => r do
+    rewrite -(add_varD r v (fun l l => _ >>= _)) csubst_list_add_varC //.
   rewrite -cenv_has_vars -cenv_rcons cenv_has_vars.
   under eq_bind => r.
     rewrite -get_var_csubst_listC //; first over.
@@ -2128,6 +1947,7 @@ elim: s s0 he v t Ht=> [|[v' t'] s IH /=] s0 he v t Ht Hnin.
     by rewrite orbT.
   rewrite -cenv_has_vars cenv_add_var_get cenv_rcons cenv_has_vars.
   under eq_bind do rewrite add_varD -csubst_list_add_varC //.
+  under [RHS]eq_bind => r do rewrite bindA.
   by rewrite -cenv_has_vars.
 move => He Hsort Hsub.
 case/boolP: (v == v') => vv'; last first.
@@ -2162,8 +1982,7 @@ under eq_bind => r.
   rewrite -get_var_csubst_listC //.
   rewrite -2![X in _ >> ( _ >> X)]bindA (bindA (has_vars _ _)).
   rewrite -has_vars_csubstC // bindA.
-  rewrite csubst_get_var //.
-  rewrite csubst_add_varC //.
+  rewrite csubst_get_var // csubst_add_varC //.
   under (eq_bind (add_var r v)) do rewrite -(bindskipf (_ >> _)).
   rewrite -(bindA (add_var r v)) add_var_skipE.
   rewrite -[X in _ >> (_ >> X)]bindA has_vars_add_var_skip; last first.
@@ -2178,21 +1997,8 @@ under eq_bind => r.
   rewrite -csubst_list_seq1 -csubst_list_cat cats1 -csubst_list_cat.
   over.
 rewrite -cat1s catA cats1 -cenv_has_vars.
-case Ht': t' => [v'|n|t1 t2]; first last.
-- apply: eq_bind => r.
-  apply: eq_bind => _.
-  clear.
-  rewrite /= bindA.
-  case: he => [|he].
-    case: s => [|a s] //=;
-    rewrite !bindA; by under eq_bind do under eq_bind do rewrite bindretf.
-  case: s => [|a s] //=;
-  under eq_bind do (rewrite bindA; under eq_bind do rewrite bindretf);
-  by rewrite bindA; under [RHS]eq_bind do rewrite bindA.
-- apply: eq_bind => r.
-  apply: eq_bind => _.
-  clear.
-  by case: he => [|he]; case: s => [|a s] //=; rewrite !bindretf.
+case/boolP: (not_btVar t'); first exact: expand_uLink_not_btVar.
+case Ht': t' => [v'|n|t1 t2] // _.
 rewrite (IH _ _ v') //.
 - move: Hsort; rewrite -cats1 Ht'.
   elim: s0 {Hnin Hsub Hfvs0 IH} => //= [|[v1 t1] s0 IH] /andP[] /andP[_] /=.
@@ -2205,6 +2011,196 @@ rewrite (IH _ _ v') //.
 - by rewrite -cats1 -catA /= -Ht'.
 Qed.
 
+Lemma unifysubst h h' he vs l (s0 s : substType) :
+  h > size (vars_pairs (map (subst_pair (push_subst s0)) l)) ->
+  h' > bt_size_pairs (map (subst_pair (push_subst s0 ++ s)) l) ->
+  he > size s0 ->
+  bt_unify2 h (map (subst_pair (push_subst s0)) l) = write M' s ->
+  exists2 s',
+    push_subst s' = s &
+    cenv vs >>= (fun vars =>
+      csubst_list vars s0 >> repr_btree_pairs vars l >>= (unify1 h' he)
+    ) = cenv vs >>= csubst_list^~ (s0 ++ s').
+Proof.
+  elim: h h' he vs l s0 s => // h IHh.
+  elim/ltn_ind => h' IHh' he vs [/=|[t1 t2] l] s0 s.
+    case: h' IHh' => // h' IHh' _ _ He [].
+    rewrite [RHS]cats0 => <-.
+    exists nil => //.
+    under eq_bind do rewrite /repr_btree_pairs bindA !bindretf /= -foldr_bindA.
+    by rewrite cats0.
+  move=> Hh Hh' He.
+  under eq_bind => vars do rewrite bindA repr_btree_cons /=.
+  rewrite /repr_btree_pairs /=.
+  case: h' Hh' IHh' => // h' Hh' IHh'.
+  destruct t1, t2.
+(* LinkLink *)
+- move => Hu /=.
+  under eq_bind => vars.
+    rewrite bindA.
+    under [X in _ >> X]eq_bind => x.
+      rewrite bindretf.
+      under eq_bind => l1.
+        rewrite bindA.
+        under eq_bind => x' do rewrite bindretf.
+      over.
+    over.
+  over.
+  have [->|Hneq] := eqVneq v v0.
+    admit.
+  admit.
+  (* LinkInt *)
+- move => Hu /=.
+  move: (ltnm0 He) => He'.
+  under eq_bind => vars.
+    rewrite bindA.
+    under [X in _ >> X]eq_bind => x.
+      rewrite bindretf.
+      under eq_bind => l1.
+        rewrite bindretf (expand_head_not_uLink _ (u:=uInt n)) => //.
+        under eq_bind => l2 do under eq_bind => t1 do rewrite bindretf.
+      over.
+    over.
+  over.
+  admit.
+  (* LinkNode *)
+- move => Hu /=.
+  move: (ltnm0 He) => He'.
+  under eq_bind => vars.
+    rewrite bindA.
+    under [X in _ >> X]eq_bind => x.
+      rewrite bindretf.
+      under eq_bind => l1.
+        rewrite bindA.
+        under eq_bind => t0.
+          rewrite bindA.
+          under eq_bind => t1.
+            rewrite bindretf (expand_head_not_uLink _ (u:=uNode _ _)) => //.
+            under eq_bind => l2 do under eq_bind => t2 do rewrite bindretf.
+          over.
+        over.
+      over.
+    over.
+  over.
+  admit.
+  (* IntLink *)
+- move => Hu /=.
+  move: (ltnm0 He) => He'.
+  under eq_bind => vars.
+    rewrite bindretf expand_head_not_uLink => //.
+    under [X in _ >> X]eq_bind => l1.
+      rewrite bindA.
+      under eq_bind => x.
+        rewrite bindretf.
+        under eq_bind => l2 do rewrite bindretf.
+      over.
+    over.
+  over.
+  admit.
+  (* IntInt *)
+- have [-> Hu|eqnn0 /=] := eqVneq n n0;
+    last by rewrite /subst_pair !subst_btInt /= (negPf eqnn0).
+  have H1: size (vars_pairs [seq subst_pair (push_subst s0) i | i <- l]) < h.+1
+    by rewrite /= 2!subst_btInt /vars /= in Hh.
+  have H2: bt_size_pairs [seq subst_pair (push_subst s0 ++ s) i | i <- l] < h'.
+    rewrite /= /subst_pair 2!subst_btInt /bt_size_pairs /= ltnS add1n add2n in Hh'.
+    exact: leq_ltn_trans.
+  have H3: bt_unify2 h.+1 [seq subst_pair (push_subst s0) i | i <- l] = write M' s.
+    move: Hu => <-.
+    rewrite /= /subst_pair !subst_btInt.
+    rewrite [bt_unify1]lock /bt_size_pairs /= add1n add2n.
+    rewrite -{-1}lock [_.+2]lock !addn1 /= eqxx -!lock.
+    exact: unify1_eq.
+  have Hm: h' < h'.+1 by [].
+  move: (IHh' _ Hm he vs l s0 s H1 H2 He H3) => [s' ? IH].
+  exists s' => //.
+  rewrite /= in IH.
+  rewrite -IH [unify1]lock /=.
+  apply: eq_bind => vars.
+  rewrite [RHS]bindA.
+  apply: eq_bind => _.
+  rewrite bindretf [RHS]bindA.
+  apply: eq_bind => l1.
+  rewrite bindretf [RHS]bindA.
+  apply: eq_bind => l2.
+  rewrite bindretf -lock /=.
+  move: (ltnm0 He) => He'.
+  rewrite expand_head_not_uLink => //.
+  by rewrite 2!bindretf eqxx.
+  (* IntNode *)
+- by rewrite /subst_pair /= subst_btInt subst_btNode.
+  (* NodeLink *)
+- move => Hu /=.
+  move: (ltnm0 He) => He'.
+  under eq_bind => vars.
+    rewrite bindA.
+    under [X in _ >> X]eq_bind => t0.
+      rewrite bindA.
+      under eq_bind => t1.
+        rewrite bindretf expand_head_not_uLink => //.
+        under eq_bind => l1.
+          rewrite bindA.
+          under eq_bind => x.
+            rewrite bindretf.
+            under eq_bind => l2 do rewrite bindretf.
+          over.
+        over.
+      over.
+    over.
+  over.
+  admit.
+  (* NodeInt *)
+- by rewrite /subst_pair /= subst_btNode subst_btInt.
+  (* NodeNode *)
+- move => Hu.
+  rewrite /= /subst_pair !subst_btNode /= -addnE in Hu.
+  have H1:
+    size (vars_pairs
+      [seq subst_pair (push_subst s0) i
+        | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]]) < h.+1.
+    rewrite /= /subst_pair !subst_btNode in Hh.
+    by rewrite -size_vars_pairs_btNode.
+  have H2:
+    bt_size_pairs
+      [seq subst_pair (push_subst s0 ++ s) i
+        | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]] < h'.
+    move: Hh'.
+    rewrite /bt_size_pairs /= 2!subst_btNode /= !addnA (addnAC (size_tree _)) !(addn1, add1n) ltnS.
+    exact: leq_ltn_trans.
+  have H3:
+    bt_unify2 h.+1
+      [seq subst_pair (push_subst s0) i
+        | i <- [:: (t1_1, t2_1), (t1_2, t2_2) & l]] =
+    write M' s.
+    rewrite -Hu.
+    apply: unify1_eq => //=; last first.
+      by rewrite addn1.
+    by rewrite /bt_size_pairs /= !addnA (addnAC (size_tree _)) !(addn1, add1n).
+  have Hm: h' < h'.+1 by [].
+  move: (IHh' _ Hm he vs ((t1_1, t2_1) :: (t1_2, t2_2) :: l) s0 s H1  H2 He H3) => [s' ? IH].
+  exists s' => //.
+  rewrite -IH.
+  apply: eq_bind => vars.
+  rewrite [unify1]lock.
+  rewrite [RHS]bindA !repr_btree_cons /=.
+  apply: eq_bind => _.
+  rewrite bindA.
+  apply: eq_bind => tl1.
+  rewrite bindA [RHS]bindA.
+  apply: eq_bind => tl2.
+  rewrite bindretf [RHS]bindA.
+  apply: eq_bind => l1.
+  rewrite bindretf bindA.
+  apply: eq_bind => tr1.
+  rewrite bindA [RHS]bindA.
+  apply: eq_bind => tr2.
+  rewrite bindretf [RHS]bindA.
+  apply: eq_bind => l2.
+  rewrite bindretf -lock /=.
+  move: (ltnm0 He) => He'.
+  rewrite !expand_head_not_uLink => //.
+  by rewrite 2!bindretf.
+Abort.
 End equiv.
 
 End Unification.
