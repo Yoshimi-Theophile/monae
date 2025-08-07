@@ -23,7 +23,7 @@ Variables (MLU : ML_universe) (N : monad) (locT : eqType)
 Notation loc := (@loc MLU locT).
 Definition cchk {T} : loc T -> M unit := locked (fun r  => cget r >> skip).
 
-Lemma cchkE {T} : @cchk T = fun r => cget r >> skip.
+Lemma cchkE T (r : loc T) : cchk r = cget r >> skip.
 Proof. by rewrite /cchk -lock. Qed.
 
 Lemma cnewchk T s (A : UU0) (k : loc T -> M A) :
@@ -114,7 +114,7 @@ Proof. by rewrite -(bindskipf (cnew T s)) crunnew // crunskip. Qed.
 
 Lemma crunchkget A T (m : M A) (r : A -> loc T) :
   crun (m >>= fun x => cchk (r x)) = crun (m >>= fun x => cget (r x)) :> bool.
-Proof. by rewrite cchkE -bindA crunmskip. Qed.
+Proof. by under eq_bind do rewrite cchkE; rewrite -bindA crunmskip. Qed.
 
 Lemma crunchkput A T (m : M A) (r : A -> loc T) s :
   crun (m >>= fun x => cchk (r x)) ->
@@ -125,8 +125,8 @@ Lemma crunnewchkC A T1 T2 (m : M A) (r : A -> loc T1) s :
   crun (m >>= fun x => cchk (r x)) ->
   crun (m >>= fun x => cnew T2 (s x) >> cchk (r x)).
 Proof.
-rewrite crunchkget cchkE => Hck.
-under eq_bind do rewrite -bindA.
+rewrite crunchkget => Hck.
+under eq_bind do rewrite cchkE -bindA.
 rewrite -bindA crunmskip.
 exact: crunnewgetC.
 Qed.
@@ -134,7 +134,8 @@ Qed.
 Lemma crunnewchk A T (m : M A) s :
   crun m -> crun (m >>= fun x => cnew T (s x) >>= cchk).
 Proof.
-under eq_bind do rewrite cchkE cnewget.
+under eq_bind do under eq_bind do rewrite cchkE.
+under eq_bind do rewrite cnewget.
 rewrite -bindA crunmskip.
 exact: crunnew.
 Qed.

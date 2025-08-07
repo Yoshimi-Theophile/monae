@@ -115,14 +115,6 @@ End Definitions.
 
 Section monad_lemmas.
 
-(* Override a TypedStoreMonad Lemma *)
-Lemma cputgetC T1 T2 (r1 : loc T1) (r2 : loc T2)
-  (s1 : coq_type N T1) (A : UU0) (k : coq_type N T2 -> M A) :
-  loc_id r1 != loc_id r2 ->
-  cput r1 s1 >> (cget r2 >>= k) =
-  cget r2 >>= (fun v : coq_type N T2 => cput r1 s1 >> k v).
-Proof. by move=> *; rewrite -bindA cputgetC. Qed.
-
 Lemma bindifsomeret (A B : UU0) (a : option A) (m : M A) (g : A -> M B) :
   (if a is Some a then Ret a else m) >>= g =
   if a is Some a then g a else m >>= g.
@@ -431,7 +423,7 @@ rewrite -bindA crunmskip -bindA.
 apply: crunnew.
 rewrite -crunmskip bindA.
 under eq_bind => r do
-  rewrite -(bindretf r (fun=>skip)) -(bindskipf (Ret r)) -!bindA -/(cchk r).
+  rewrite -(bindretf r (fun=>skip)) -(bindskipf (Ret r)) -!bindA -cchkE.
 by rewrite -(bindA (cenv vs)) crunmskip cenv_chk.
 Qed.
 
@@ -446,7 +438,7 @@ rewrite (cenv_get_nth _ _ (fun _ _ cond => if cond then _ else _)).
 case/boolP: (n \in vs) => Hn.
   under eq_bind => r do
     rewrite -(bindretf r (fun=>skip)) -(bindretf tt (fun=>Ret r))
-            -!bindA -/(cchk r).
+            -!bindA -cchkE.
   by rewrite -bindA crunmskip cenv_chk.
 exact: crunenvadd.
 Qed.
@@ -490,7 +482,7 @@ Proof.
     rewrite !bindA !cputget.
     under eq_bind do rewrite Hws.
     under [RHS]eq_bind do rewrite Hws.
-    rewrite -cputchk !bindA !bindskipf.
+    rewrite -cputchk cchkE !bindA !bindskipf.
     apply eq_bind => _.
     rewrite -(cnewput ml_uvar (uVar n)).
     rewrite -[in RHS](cnewput ml_uvar (uVar n)).
@@ -869,7 +861,7 @@ Lemma expandgetC T A h t (l : loc T) (k : _ -> _ -> M A) :
     k t' x.
 Proof.
 elim: h t => [|h IHh] t /=.
-  rewrite bindfailf bindA bindskipf.
+  rewrite bindfailf cchkE bindA bindskipf.
   by under [RHS]eq_bind do rewrite bindfailf.
 case: t => [l'|n|t1 t2] /=.
 - rewrite ![X in cchk _ >> X]bindA.
