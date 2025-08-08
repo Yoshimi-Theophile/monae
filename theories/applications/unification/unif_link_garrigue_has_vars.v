@@ -1442,16 +1442,11 @@ by rewrite -bindA has_vars_add_var_skip.
 Qed.
 
 Lemma add_var_repr_btreeC A r vs v t (k : _ -> _ -> M A) :
-  {subset free_vars t <= vs} ->
-  has_vars r vs >> (add_var r v >>= fun l => repr_btree r t >>= k l) =
-  has_vars r vs >> (repr_btree r t >>= fun u => add_var r v >>= k ^~ u).
-Proof. apply: m_repr_btreeC => *; exact: has_add_varC. Qed.
-
-Lemma add_var_repr_btreeC' A r vs v t (k : _ -> _ -> M A) :
-  v \in vs ->
+  v \in vs \/ {subset free_vars t <= vs} ->
   has_vars r vs >> (add_var r v >>= fun l => repr_btree r t >>= k l) =
   has_vars r vs >> (repr_btree r t >>= fun u => add_var r v >>= k ^~ u).
 Proof.
+case; last by apply: m_repr_btreeC => *; exact: has_add_varC.
 move=> Hv.
 elim: t vs Hv k => [v'|n|t1 IH1 t2 IH2] vs Hv k /=.
 - rewrite bindA; under (eq_bind (add_var r v)) do rewrite bindA.
@@ -1480,7 +1475,7 @@ Lemma repr_btreeC A r vs t1 t2 (k : _ -> _ -> M A) :
   {subset free_vars t2 <= vs} ->
   has_vars r vs >> (do u1 <- repr_btree r t1; repr_btree r t2 >>= k u1) =
   has_vars r vs >> (do u2 <- repr_btree r t2; repr_btree r t1 >>= k ^~ u2).
-Proof. apply: m_repr_btreeC => *; by rewrite add_var_repr_btreeC'. Qed.
+Proof. by apply: m_repr_btreeC => *; rewrite add_var_repr_btreeC //; left. Qed.
 
 Lemma repr_btree_repr_btree_listC A r vs t tl (k : _ -> _ -> M A) :
   {subset free_vars t <= vs} ->
@@ -1560,6 +1555,40 @@ elim: t k vs => [v|n|t1 IH1 t2 IH2] k vs /=.
   by rewrite !bindretf.
 Qed.
 
+Lemma put_var_add_varC A r vs v s v' (k : _ -> _ -> M A) :
+  v \in vs ->
+ has_vars r vs >> (do l <- add_var r v; cput l s >> (add_var r v' >>= k l)) =
+ has_vars r vs >>
+ (do l' <- add_var r v'; do l <- add_var r v; cput l s >> k l l').
+Proof.
+move=> Hv.
+rewrite has_add_varC //.
+rewrite has_varsE bindA [RHS]bindA.
+apply: eq_bind => vars.
+rewrite 3!bindA 2![in RHS]bindA.
+apply: bind_ext_guard => /andP[Hvars Hu].
+rewrite bindA [in RHS]bindA !cputget.
+move/allP/(_ _ Hv): (Hvars).
+case Hnth: nth => [l|] // _.
+have rl : loc_id r != loc_id l.
+  move/andP: Hu => [] /[swap] _.
+  apply: contra => /eqP ->.
+  by rewrite mem_loc_id_vars // (mem_nth_some Hnth).
+rewrite !bindretf -(bindA (cput _ _)) cputC //; last by left.
+rewrite !bindA !cputget.
+case Hnth': nth => [l'|].
+  rewrite -(bindA (cput _ _)) -cputC //; last by left.
+  by rewrite !bindretf bindA.
+rewrite -(bindA (cput l _)) -cputC //; last by left.
+rewrite 3!bindA -cchknewput.
+rewrite -bindA -cchkputC bindA -[LHS]bindA.
+rewrite -cchk_cchkvarsC -(cchkvars_nth Hnth) -[LHS]bindA -[RHS]bindA.
+apply: eq_bind => _.
+apply: eq_bind => l'.
+rewrite !bindA !bindretf -bindA -cputC //; last by left.
+by rewrite bindA.
+Qed.
+
 Lemma csubst_add_varC A r vs v t v' (k : _ -> M A) :
   {subset v :: free_vars t <= vs} ->
   has_vars r vs >> (csubst r v t >> (add_var r v' >>= k)) =
@@ -1569,45 +1598,12 @@ move=> Hfv.
 rewrite /csubst bindA.
 under [in RHS](eq_bind (add_var r v')) do rewrite bindA.
 rewrite add_var_repr_btreeC; last first.
-  by move=> x Hx; rewrite Hfv // in_cons Hx orbT.
+  by right; move=> x Hx; rewrite Hfv // in_cons Hx orbT.
 rewrite has_vars_repr_btreeC [RHS]has_vars_repr_btreeC.
 apply: eq_bind => _.
 apply: eq_bind => u.
-rewrite has_vars_subset; last first.
-  by move=> x Hx; rewrite Hfv // in_cons Hx orbT.
-rewrite bindA.
-rewrite has_varsE bindA [RHS]bindA.
-apply: eq_bind => vars.
-rewrite 3!bindA 2![in RHS]bindA.
-apply: bind_ext_guard => /andP[Hvars Hu].
-under [in RHS](eq_bind (add_var r v')) do rewrite bindA.
-rewrite -add_varC_present; last first.
-  move/allP: Hvars; apply; apply: Hfv.
-  by rewrite in_cons eqxx.
-rewrite bindA [in RHS]bindA !cputget.
-have Hvvs : v \in vs by apply: Hfv; rewrite !inE eqxx.
-move/allP/(_ _ Hvvs): (Hvars).
-case Hnth: nth => [l|] // _.
-rewrite !bindretf.
-rewrite [in RHS](cchkvars_nth Hnth) cchk_cchkvarsC bindA.
-apply: eq_bind => _.
-have rl : loc_id r != loc_id l.
-  move/andP: Hu => [] /[swap] _.
-  apply: contra => /eqP ->.
-  by rewrite mem_loc_id_vars // (mem_nth_some Hnth).
-rewrite -(bindA (cput r _)) cputC //; last by left.
-rewrite 2!bindA [X in _ = _ >> (_ >> X)]bindA !cputget.
-case Hnth': nth => [l'|].
-  rewrite !bindretf -(bindA (cput r _)) cputC //; last by left.
-  by rewrite [X in _ = _ >> X]bindA -[RHS]bindA cchkput.
-rewrite -(bindA (cput l _)) -cputC //; last by left.
-rewrite 2!bindA -cchknewput.
-rewrite -bindA -cchkputC -[RHS]bindA.
-apply: eq_bind => _.
-rewrite bindA.
-apply: eq_bind => l'.
-rewrite !bindA !bindretf -bindA cputC //; last by left.
-by rewrite bindA.
+rewrite bindA put_var_add_varC; last by rewrite mem_cat Hfv // inE eqxx.
+by under [in RHS](eq_bind (add_var r v')) do rewrite bindA.
 Qed.
 
 Lemma free_vars_subst_subset (s1 s2 : substType) :
@@ -1669,9 +1665,9 @@ under (eq_bind (add_var r v)) => l.
   rewrite cget_repr_btreeC; first over.
   by move=> x Hx; rewrite mem_rcons inE Hfv // orbT.
 rewrite -has_vars_add_var.
-rewrite add_var_repr_btreeC //.
+rewrite add_var_repr_btreeC; last by right.
 under (eq_bind (add_var r v)) => l do rewrite bindA.
-rewrite add_var_repr_btreeC //.
+rewrite add_var_repr_btreeC; last by right.
 rewrite has_vars_repr_btreeC [RHS]has_vars_repr_btreeC.
 apply: eq_bind => _.
 apply: eq_bind => u.
@@ -1778,9 +1774,9 @@ under [X in _ = _ >> X]eq_bind => u.
   under (eq_bind (repr_btree r t)) do rewrite bindA.
   rewrite repr_btreeD.
   over.
-rewrite -has_vars_add_var add_var_repr_btreeC //.
+rewrite -has_vars_add_var add_var_repr_btreeC; last by right.
 under [X in _ >> X]eq_bind do rewrite bindA.
-rewrite add_var_repr_btreeC //.
+rewrite add_var_repr_btreeC; last by right.
 apply: eq_bind => _.
 apply: eq_bind => u.
 under eq_bind do rewrite bindA.
