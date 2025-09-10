@@ -2170,9 +2170,9 @@ Lemma dominates_push_subst s x y :
 Proof. by rewrite push_substE => /dominates_push_subst'. Qed.
 
 Lemma acyclic_subst_sub (s1 s2 : substType) :
-  acyclic_subst s2 -> {subset s1 <= s2} -> acyclic_subst s1.
+  {subset s1 <= s2} -> acyclic_subst s2 -> acyclic_subst s1.
 Proof.
-move=> Hac Hsub x p.
+move=> Hsub Hac x p.
 apply: contra (Hac x p) => /=.
 apply: sub_path => a b /hasP /= [[v t]] Hs1 Ha.
 apply/hasP; exists (v,t) => //.
@@ -2201,11 +2201,6 @@ elim: s => //= -[v t'] s IH /= /andP[Hv] Hall.
 by rewrite subst_same ?IH // -free_varsE.
 Qed.
 
-Definition idempotent_subst (s : substType) :=
-  all (fun x =>
-    all (fun y => y \notin free_vars (subst_list s (btVar x))) (unzip1 s))
-    (unzip1 s).
-
 Lemma all_notinE (A : eqType) (s1 s2 : seq A) :
   all (fun x => x \notin s1) s2 = all (fun x => x \notin s2) s1.
 Proof.
@@ -2221,6 +2216,29 @@ case/boolP: (x == a) => //= /eqP xa.
 by rewrite -xa Hx in as2.
 Qed.
  
+Lemma free_vars_keep s v t :
+  v \notin unzip1 s ->
+  v \in free_vars t ->
+  v \in free_vars (subst_list s t).
+Proof.
+elim: t => [n|n|t1 IH1 t2 IH2] //= Hu.
+  rewrite inE => /eqP <- /=.
+  rewrite subst_list_same /=.
+    by rewrite inE.
+  by rewrite all_notinE /= Hu.
+rewrite mem_cat subst_btNode /= mem_cat => /orP[] Hv.
+  by rewrite IH1.
+by rewrite IH2 // orbT.
+Qed.
+
+Definition idempotent_subst' (s : substType) :=
+  all (fun x => all (fun t => x \notin free_vars t) (unzip2 s)) (unzip1 s).
+
+Definition idempotent_subst (s : substType) :=
+  all (fun x =>
+    all (fun y => y \notin free_vars (subst_list s (btVar x))) (unzip1 s))
+    (unzip1 s).
+
 Lemma idempotent_substP s :
   reflect
     (forall t,
@@ -2244,16 +2262,40 @@ elim => [x|n|t1 IH1 t2 IH2] /=.
 - by rewrite subst_btNode /= all_notinE all_cat all_notinE IH1 all_notinE IH2.
 Qed.
 
+Lemma idempotent_subst'P s :
+  idempotent_subst' s -> idempotent_subst s.
+Proof.
+move=> Hid.
+apply/allP => /= x Hx.
+apply/allP => /= y Hy.
+set s0 := s in Hid Hy.
+have : {subset s <= s0} by [].
+clearbody s0.
+elim: s Hx => // -[x' t'] s /= IH.
+rewrite inE eq_sym.
+case: (_ == _) => /= [_ | Hx] Hsub; last first.
+  apply: IH => //.
+  by apply: sub_trans Hsub => u; rewrite inE orbC => ->.
+have /(map_f snd) /= Ht' := Hsub (x',t') (mem_head _ _).
+have {}Hsub : {subset s <= s0}.
+  by apply: sub_trans Hsub => u; rewrite inE orbC => ->.
+elim: s Hsub {IH} => [|[x1 t2] s IH] /= Hsub.
+  by move/allP/(_ y Hy)/allP/(_ t' Ht'): Hid.
+rewrite subst_same.
+  apply: IH.
+  by apply: sub_trans Hsub => u; rewrite inE orbC => ->.
+have /(map_f fst) /= Hx1 := Hsub (x1,t2) (mem_head _ _).
+move/allP/(_ x1 Hx1)/allP/(_ t' Ht'): Hid.
+by rewrite free_varsE.
+Qed.
+
 Lemma idempotent_subst_nil : idempotent_subst nil.
 Proof. by apply/allP. Qed.
 
-Lemma acyclic_idempotent_push_subst s :
-  acyclic_subst s -> idempotent_subst (push_subst s).
+Lemma acyclic_idempotent_push_subst' s0 s :
+  idempotent_subst s0 ->
+  acyclic_subst (s0 ++ s) -> idempotent_subst (s0 ++ push_subst' s0 s).
 Proof.
-have := idempotent_subst_nil.
-rewrite -(cat0s s).
-rewrite push_subst_cat /push_subst [foldl _ _ _]/=.
-set s0 := nil.
 elim: s s0 => [|[v t] s IH] s0 Hs0 Hac /=.
   by rewrite cats0.
 have Hs0' : idempotent_subst (rcons s0 (v, subst_list s0 t)).
@@ -2336,6 +2378,14 @@ apply: map_path_single.
 exact: dominates_subst_list.
 Qed.
 
+Lemma acyclic_idempotent_push_subst s :
+  acyclic_subst s -> idempotent_subst (push_subst s).
+Proof.
+have := idempotent_subst_nil.
+rewrite -(cat0s s) push_subst_cat.
+exact: acyclic_idempotent_push_subst'.
+Qed.
+
 Lemma bt_expand_head_idem s t :
   sorted_subst s -> bt_expand_head s (bt_expand_head s t) = bt_expand_head s t.
 Proof.
@@ -2366,19 +2416,267 @@ move=> /andP[v't] Hv2 /= Hs.
 by rewrite Hv1 Hv2 IH // bt_expand_head_cat.
 Qed.
 
+Lemma subst_list_cat s1 s2 t :
+  subst_list (s1 ++ s2) t = subst_list s2 (subst_list s1 t).
+Proof. exact: foldl_cat. Qed.
+
+Fixpoint subst_par (s : substType) t :=
+  match t with
+  | btVar v => head t [seq x.2 | x <- s & x.1 == v]
+  | btInt n => t
+  | btNode t1 t2 => btNode (subst_par s t1) (subst_par s t2)
+  end.
+
+Lemma subst_par_nil t : subst_par nil t = t.
+Proof. by elim: t => //= ? -> ? ->. Qed.
+
+Lemma idempotent_subst_cat s1 s2 :
+  uniq (unzip1 (s1 ++ s2)) ->
+  idempotent_subst (s1 ++ s2) ->
+  idempotent_subst s1 /\ idempotent_subst s2.
+Proof.
+move=> Hu Hid.
+split.
+- apply/allP => /= x Hx.
+  apply/allP => /= y Hy.
+  move/allP/(_ x): Hid.
+  rewrite /unzip1 map_cat mem_cat Hx => /(_ isT) /allP/(_ y).
+  rewrite /unzip1 mem_cat Hy /= => /(_ isT).
+  rewrite subst_list_cat.
+  apply: contra.
+  set t := subst_list s1 _.
+  apply: free_vars_keep.
+  move: Hu.
+  rewrite /unzip1 map_cat cat_uniq => /andP[_] /andP[] Hhas _.
+  apply: contra Hhas => Hy'.
+  by apply/hasP; exists y.
+- apply/allP => /= x Hx.
+  apply/allP => /= y Hy.
+  move/allP/(_ x): Hid.
+  rewrite /unzip1 map_cat mem_cat Hx orbT => /(_ isT) /allP/(_ y).
+  rewrite /unzip1 mem_cat Hy orbT => /(_ isT).
+  rewrite subst_list_cat (subst_list_same (t:=btVar x)) //.
+  rewrite all_notinE /= andbT.
+  move: Hu.
+  rewrite /unzip1 map_cat cat_uniq => /andP[_] /andP[] Hhas _.
+  apply: contra Hhas => Hx'.
+  by apply/hasP; exists x.
+Qed.
+
+Lemma idempotent_subst_free_vars s v t0 t :
+  idempotent_subst ((v,t0) :: s) ->
+  t \in t0 :: unzip2 s ->
+  uniq (v :: unzip1 s) ->
+  v \notin free_vars t.
+Proof.
+move=> Hid.
+rewrite inE => /orP[/eqP -> | Ht].
+  move=> /= /andP[Hv] _.
+  move/allP/(_ v): Hid.
+  rewrite inE /= !eqxx => /(_ isT) /andP[] /[swap] _.
+  apply: contra.
+  exact: free_vars_keep.
+pose n := find (fun x => x.2 == t) s.
+move: Ht (Ht) Hid.
+rewrite -{1}has_pred1 has_map => Ht.
+case: (split_find Ht) => x s1 s2 Hx Hpre {}Ht Hid Hu.
+move: Hid.
+rewrite -cat1s catA => /idempotent_subst_cat.
+rewrite -catA Hu => /(_ isT) [].
+move/allP/(_ x.1).
+rewrite -cats1 /unzip1 !map_cat !mem_cat mem_seq1 inE eqxx !orbT => /(_ isT).
+case/andP => /[swap] _.
+rewrite catA subst_list_cat (subst_list_same (t:=btVar _)).
+  by rewrite /= eqxx (eqP Hx).
+rewrite all_notinE /=.
+move: Hu; rewrite -cat1s /unzip1 map_cat catA cat_uniq => /andP[].
+by rewrite map_rcons -cats1 catA cats1 rcons_uniq => /andP[] ->.
+Qed.
+
+Lemma filter_unzip1 (s : substType) v :
+  v \notin unzip1 s ->
+  [seq x <- s | x.1 == v] = [::].
+Proof.
+move=> Hv.
+apply/eqP/negP => /negP.
+rewrite -has_filter => /hasP[/= [v' t']] /= /[swap] /eqP -> /(map_f fst) H.
+by rewrite H in Hv.
+Qed.
+
+Lemma subst_par_out (s : substType) t :
+  all (fun x => x \notin free_vars t) (unzip1 s) ->
+  subst_par s t = t.
+Proof.
+elim: t => // [v | t1 IH1 t2 IH2] /=.
+  rewrite all_notinE /= andbT => Hv.
+  by rewrite filter_unzip1.
+rewrite all_notinE all_cat /= => /andP[Ht1 Ht2].
+by rewrite IH1 (all_notinE,IH2) // all_notinE.
+Qed.
+
+Lemma subst_par_cat (s1 s2 : substType) t :
+  all (fun x => all (fun t => x \notin free_vars t) (unzip2 s1)) (unzip1 s2) ->
+  subst_par (s1 ++ s2) t = subst_par s2 (subst_par s1 t).
+Proof.
+move=> /= Hall.
+elim: t => // [v | t1 IH1 t2 IH2] /=; last by rewrite IH1 IH2.
+elim: s1 Hall => // -[v' t'] s1 IH /= Hall.
+case: ifPn => [/eqP -> /= | vv'].
+  rewrite subst_par_out //.
+  by apply: sub_all Hall => w /andP[].
+apply: IH.
+by apply: sub_all Hall => w /andP[].
+Qed.
+
+Lemma subst_par_catC (s1 s2 : substType) t :
+  uniq (unzip1 (s1 ++ s2)) ->
+  subst_par (s1 ++ s2) t = subst_par (s2 ++ s1) t.
+Proof.
+move=> Hu.
+elim: t => // [v | t1 IH1 t2 IH2] /=; last by rewrite IH1 IH2.
+elim: s1 Hu => [|[v' t'] s1 IH] /=.
+  by rewrite cats0.
+case: ifPn => [/eqP -> /= | vv'] /andP[Hv' Hu].
+  rewrite filter_cat filter_unzip1 /= ?eqxx //.
+  by move: Hv'; rewrite [unzip1 _]map_cat mem_cat negb_or => /andP[].
+by rewrite IH // 2!filter_cat /= (negbTE vv').
+Qed.
+
+Lemma subst_par1 v t t' : subst_par [:: (v, t)] t' = subst v t t'.
+Proof. elim: t' => //[?|? IH1 ? IH2]/=; by [case: ifP | rewrite IH1 IH2]. Qed.
+
+Fixpoint pull_subst (s : substType) :=
+  match s with
+  | nil => nil
+  | (v,t) :: s' => let s'' := pull_subst s' in (v, subst_par s'' t) :: s''
+  end.
+
+Lemma dom_pull_subst s : unzip1 (pull_subst s) = unzip1 s.
+Proof. by elim: s => // -[v t] s /= ->. Qed.
+
+Lemma subst_par_pull_subst (s : substType) t :
+  acyclic_subst s ->
+  idempotent_subst s ->
+  uniq (unzip1 s) ->
+  subst_par (pull_subst s) t = subst_list s t.
+Proof.
+elim: s t => [|[v' t'] s IH] t Hac Hid Hu /=.
+  by rewrite subst_par_nil.
+have Hac' : acyclic_subst s.
+  apply: acyclic_subst_sub Hac => x.
+  by rewrite inE orbC => ->.
+have Hid' : idempotent_subst s.
+  rewrite -cat1s in Hid Hu.
+  by case: (idempotent_subst_cat Hu Hid).
+have Hu' : uniq (unzip1 s) by case/andP: Hu.
+elim: t => [v|n|t1 IH1 t2 IH2] /=.
+- case: ifPn => [/eqP -> | vv'] /=; by rewrite -IH.
+- by rewrite subst_btInt.
+- by rewrite subst_btNode IH1 IH2.
+Qed.
+
+Lemma all_swap (A B : eqType) (r : A -> B -> bool) (s1 : seq A) (s2 : seq B) :
+  all (fun x => all (fun y => r x y) s2) s1 =
+  all (fun y => all (fun x => r x y) s1) s2.
+Proof.
+case/boolP: (all _ s2) => H.
+  apply/allP => x Hx.
+  apply/allP => y Hy.
+  by move/allP/(_ _ Hy)/allP/(_ _ Hx): H.
+apply: contraNF H => H.
+apply/allP => y Hy.
+apply/allP => x Hx.
+by move/allP/(_ _ Hx)/allP/(_ _ Hy): H.
+Qed.
+
+Lemma idempotent_pull_subst s :
+  acyclic_subst s ->
+  idempotent_subst s ->
+  uniq (unzip1 s) ->
+  idempotent_subst' (pull_subst s).
+Proof.
+elim: s => [|[v t] s IH] // Hac Hid Hu.
+have Hac' : acyclic_subst s.
+  apply: acyclic_subst_sub Hac => x.
+  by rewrite inE orbC => ->.
+have Hid' : idempotent_subst s.
+  rewrite -cat1s in Hid Hu.
+  by case: (idempotent_subst_cat Hu Hid).
+have Hu' : uniq (unzip1 s) by case/andP: Hu.
+apply/allP => /= x.
+move: (Hid).
+rewrite /idempotent_subst all_swap => /allP/(_ v).
+rewrite /= !inE eqxx => /(_ isT) /andP[].
+case/boolP: (x == v) => [/eqP -> | xv Hv] /=.
+  rewrite subst_par_pull_subst // => -> {}Hid /= _.
+  move: Hu => /= /andP[].
+  elim: s {Hac Hu' IH} Hac' Hid' Hid => // -[v' t'] s IH Hac' Hid' Hfv Hv Hu'.
+  have Hac : acyclic_subst s.
+    apply: acyclic_subst_sub Hac' => ?.
+    by rewrite inE orbC => ->.
+  have Hid : idempotent_subst s.
+    rewrite -cat1s in Hid' Hu'.
+    by case: (idempotent_subst_cat Hu' Hid').
+  have Hu : uniq (unzip1 s) by case/andP: Hu'.
+  move: Hv Hfv => /=.
+  rewrite inE negb_or => /andP[] /negbTE -> Hv /andP[] /=.
+  rewrite eqxx.
+  rewrite /= subst_par_pull_subst // => -> /= Hfv.
+  apply: IH => //.
+  apply/allP => y Hy.
+  case: ifPn => vy.
+    by rewrite (eqP vy) Hy in Hv.
+  move/allP/(_ _ Hy): Hfv.
+  rewrite (negbTE vy) /=.
+  case: ifPn => // /eqP v'y.
+  by rewrite /= v'y Hy in Hu'.
+rewrite dom_pull_subst => Hfv Hx.
+move: (Hid).
+rewrite /idempotent_subst all_swap => /allP/(_ x).
+rewrite /= inE eqxx (negbTE xv) Hx => /(_ isT) /andP[].
+rewrite subst_par_pull_subst // => -> /= Hfv'.
+move/allP/(_ x): (IH Hac' Hid' Hu') => -> //.
+by rewrite dom_pull_subst.
+Qed.
+
+Lemma acyclic_subst_listC s1 s2 t :
+  acyclic_subst (s1 ++ s2) ->
+  uniq (unzip1 (s1 ++ s2)) ->
+  subst_list (push_subst (s1 ++ s2)) t =
+  subst_list (push_subst (s2 ++ s1)) t.
+Proof.
+rewrite !push_subst_cat !subst_list_cat.
+Abort.
+
 Lemma subst_list_bt_expand_head s t :
-  sorted_subst s ->
+  acyclic_subst s ->
   subst_list (push_subst s) t = subst_list (push_subst s) (bt_expand_head s t).
 Proof.
-rewrite push_substE /push_subst.
-elim: s t => [|[v t'] s IH] [n|n|t1 t2] //=
-             /andP[] /andP[] Hv1 Hv2 Hs.
-rewrite eq_sym.
-have [_ | nv] := eqVneq n v.
-  case: t' Hv2 => [v'|n'|t1 t2] Hv2; first last.
-  - rewrite bt_expand_head_not_btVar // subst_same // -free_varsE.
-    admit.
+rewrite push_substE.
+rewrite -{1}(cat0s s).
+rewrite -(cat0s (push_subst' _ _)).
+move: idempotent_subst_nil.
+set s0 := nil.
+elim: s s0 t => [|[v t'] s IH] s0 [n|n|t1 t2] //= Hid Hac.
+rewrite eq_sym -cat1s catA cats1.
+have [-> | nv] := eqVneq n v; last first.
+  apply: IH.
+  - rewrite -cats1 -/(push_subst' s0 [:: (v, t')]).
+    rewrite acyclic_idempotent_push_subst' //.
+    apply: acyclic_subst_sub Hac => x Hx.
+    by rewrite -cat1s catA mem_cat Hx.
+  - admit.
+case: t' Hac => [v'|n'|t1 t2] Hac; first last.
+- rewrite bt_expand_head_not_btVar //=.
+  rewrite -!cats1 !subst_list_cat.
+  rewrite subst_list_same; last first.
+    rewrite dom_push_subst'.
+    
+ subst_same //. -free_varsE.
+    apply: contra (Hac v nil) => /=.
+    by rewrite eqxx /= => ->.
   - by rewrite bt_expand_head_not_btVar.
+  
 Abort.
 
 Lemma cenv_rcons A vs v (k : _ -> M A) :
