@@ -221,9 +221,7 @@ if h is h.+1 then
   | (btVar x, btVar y) :: r =>
     if x == y then unify1 h r
     else unify_subst x (btVar y) r
-  | (btVar x, t) :: r =>
-    unify_subst x t r
-  | (t, btVar x) :: r =>
+  | (btVar x, t) :: r | (t, btVar x) :: r =>
     unify_subst x t r
   | (btInt x, btInt y) :: r =>
     if x == y then unify1 h r else fail
@@ -264,20 +262,18 @@ move => nin; elim: l => /= [| a l IHl].
 - by rewrite -IHl [RHS]andbCA.
 Qed.
 
-Definition always T (p : _ -> bool) (m : M T) :=
-  exists a, m = write M a >> fail
-         \/ exists r : T, m = write M a >> Ret r /\ p (r, a).
+Definition always (p : _ -> bool) (m : M unit) :=
+  exists a, m = write M a >> fail \/ m = write M a /\ p a.
 
-Lemma always_fail T P : exists a, @fail M T = write M a >> fail \/ P a.
+Lemma always_fail P : exists a, @fail M unit = write M a >> fail \/ P a.
 Proof. by exists subst0; rewrite write0 bindretf; left. Qed.
 
-Lemma always_ret T (p : _ -> bool) r : p (r, subst0) -> @always T p (Ret r).
-Proof. by exists subst0; right; exists r; rewrite write0 bindretf. Qed.
+Lemma always_ret (p : _ -> bool) : p subst0 -> always p skip.
+Proof. by exists subst0; right; rewrite write0. Qed.
 
 Lemma unify_subst_sound h v t l :
-  (forall l, always (fun x => unifiesb_pairs x.2 l) (unify2 h l)) ->
-  always (fun x => unifiesb_pairs x.2 ((btVar v, t) :: l))
-    (unify_subst (unify2 h) v t l).
+  (forall l, always (unifiesb_pairs ^~ l) (unify2 h l)) ->
+  always (unifiesb_pairs ^~ ((btVar v, t) :: l)) (unify_subst (unify2 h) v t l).
 Proof.
 rewrite /unify_subst.
 case: ifPn => Hocc // IH.
@@ -285,12 +281,11 @@ case: ifPn => Hocc // IH.
 set l' := map _ l.
 case: (IH l') => a [-> | [] [] [] -> Ha]; exists [:: (v,t) & a].
   by rewrite -bindA writeA; left.
-right; exists tt.
-by rewrite -bindA writeA /= unifiesb_pairs_subst.
+right.
+by rewrite writeA /= unifiesb_pairs_subst.
 Qed.
 
-Theorem unify2_sound h l :
-  always (fun x => unifiesb_pairs x.2 l) (unify2 h l).
+Theorem unify2_sound h l : always (unifiesb_pairs ^~ l) (unify2 h l).
 Proof.
 elim: h l => /= [l | h IH l].
 - exact: always_fail.
@@ -317,7 +312,7 @@ destruct t1, t2; try exact: always_fail; rewrite /always /=.
   exact: IH'.
 Qed.
 
-Corollary soundness t1 t2: always (fun x => unifiesb x.2 t1 t2) (unify t1 t2).
+Corollary soundness t1 t2: always (fun s => unifiesb s t1 t2) (unify t1 t2).
 Proof.
 rewrite /unify /always /=.
 have Huup: forall s t1 t2, unifiesb s t1 t2 = unifiesb_pairs s [:: (t1, t2)]
