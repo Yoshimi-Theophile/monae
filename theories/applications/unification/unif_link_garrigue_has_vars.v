@@ -3358,7 +3358,7 @@ under eq_bind => r.
   rewrite -has_vars_repr_btreeC -2!bindA.
   rewrite (bindA (has_vars _ _)) -has_vars_csubst_listC // bindA.
   over.
-rewrite -cenv_has_vars csubst_list_deref_uterm.
+rewrite -cenv_has_vars csubst_list_deref_uterm //.
 case Ht1: (subst_root s0 t1) => [n1|n1|t11 t12];
 case Ht2: (subst_root s0 t2) => [n2|n2|t21 t22] /=.
 - under eq_bind => r.
