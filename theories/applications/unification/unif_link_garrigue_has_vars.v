@@ -795,7 +795,7 @@ Fixpoint deref_uterm (h : nat) (t : uterm) : M uterm :=
       do vt <- cget v;
       if vt is uTerm t' then deref_uterm h t' else Ret t
     else Ret t
-  else Ret t.
+  else fail.
 
 Fixpoint size_uterm (t : uterm) : nat :=
   if t is uNode t1 t2 then 1 + size_uterm t1 + size_uterm t2 else 1.
@@ -874,8 +874,8 @@ Lemma expandgetC T A h t (l : loc T) (k : _ -> _ -> M A) :
     k t' x.
 Proof.
 elim: h t => [|h IHh] t /=.
-  rewrite bindretf cchkget.
-  by under [RHS]eq_bind do rewrite bindretf.
+  under [RHS]eq_bind do rewrite bindfailf.
+  by rewrite -bindA !(bindmfail,bindfailf).
 case: t => [l'|n|t1 t2] /=.
 - rewrite ![X in cchk _ >> X]bindA.
   rewrite (cchkgetC l l').
@@ -899,7 +899,7 @@ Lemma expand_same A h t (k : _ -> _ -> M A) :
     k t' t'.
 Proof.
   elim: h t => [/=|h IHh t].
-    by move=> t; rewrite !bindretf.
+    by move=> t; rewrite !bindfailf.
   elim: t IHh => [l|n /=|t1 IH1 t2 IH2 /=] IHh.
   - rewrite /= bindA [RHS]bindA.
     under eq_bind => t1 do under eq_bind => t2 do rewrite bindA.
@@ -1853,8 +1853,9 @@ Qed.
 
 Definition not_uLink u := if u is uLink _ then false else true.
 
-Lemma deref_uterm_not_uLink he u : not_uLink u -> deref_uterm he u = Ret u.
-Proof. by case: u => // *; case: he. Qed.
+Lemma deref_uterm_not_uLink he u :
+  he > 0 -> not_uLink u -> deref_uterm he u = Ret u.
+Proof. by case: he u => // he []. Qed.
 
 Lemma repr_btree_deref_utermC A r vs t he u (k : _ -> _ -> M A) :
   {subset free_vars t <= vs} ->
@@ -1863,8 +1864,8 @@ Lemma repr_btree_deref_utermC A r vs t he u (k : _ -> _ -> M A) :
 Proof.
 move=> Ht.
 elim: he u => [|he IH] u.
-  rewrite /= bindretf.
-  by under (eq_bind (repr_btree r t)) do rewrite bindretf.
+  under (eq_bind (repr_btree r t)) do rewrite bindfailf.
+  by rewrite bindmfail bindfailf.
 case/boolP: (not_uLink u) => Hu.
   rewrite deref_uterm_not_uLink // bindretf.
   by under (eq_bind (repr_btree r t)) do rewrite bindretf.
@@ -1926,9 +1927,9 @@ Lemma has_vars_deref_utermC A r vs he u (k : _ -> M A) :
   has_vars r vs >> do u' <- deref_uterm he u; has_vars r vs >> k u'.
 Proof.
 elim: he u k => [|he IH] u k.
-  by rewrite !bindretf -bindA has_varsD.
+  by rewrite !bindfailf.
 case/boolP: (not_uLink u).
-  move/deref_uterm_not_uLink => ->.
+  move/deref_uterm_not_uLink => -> //.
   by rewrite !bindretf -bindA has_varsD.
 case Hu: u => [l||] //= _.
 rewrite [X in _ >> X]bindA [X in _ = _ >> X]bindA.
@@ -3116,6 +3117,7 @@ by rewrite inE /unzip2 map_cat /= mem_cat inE eqxx !orbT.
 Qed.
 
 Lemma csubst_list_deref_uterm0 A vs he t s s' (k : _ -> _ -> M A) :
+  he > 0 ->
   not_btVar t ->
   (do r <- cenv vs;
    csubst_list r s >>
@@ -3125,7 +3127,7 @@ Lemma csubst_list_deref_uterm0 A vs he t s s' (k : _ -> _ -> M A) :
    csubst_list r s >>
    (repr_btree r (subst_root s' t) >>= k r)).
 Proof.
-move=> nvar.
+move=> he0 nvar.
 apply: eq_bind => r.
 apply: eq_bind => _.
 rewrite subst_root_not_btVar //.
@@ -3146,7 +3148,8 @@ Lemma csubst_list_deref_uterm A vs he t (s : substType) (k : _ -> _ -> M A):
    csubst_list r s >>
    (repr_btree r (subst_root s t) >>= k r)).
 Proof.
-case/boolP: (not_btVar t); first by move=> *; apply: csubst_list_deref_uterm0.
+case/boolP: (not_btVar t).
+  by move=> ? He *; apply/csubst_list_deref_uterm0 => //; apply: leq_trans He.
 case Ht: t => [v||] // _.
 rewrite -Ht.
 pose s0 : substType := [::].
@@ -3215,7 +3218,9 @@ under eq_bind => r.
   rewrite -csubst_list_seq1 -csubst_list_cat cats1 -csubst_list_cat.
   over.
 rewrite -cat1s catA cats1 -cenv_has_vars.
-case/boolP: (not_btVar t'); first exact: csubst_list_deref_uterm0.
+case/boolP: (not_btVar t').
+  rewrite ltnS in He.
+  by apply: csubst_list_deref_uterm0 => //; apply: leq_trans He.
 case Ht': t' => [v'||] // _.
 rewrite (IH _ _ v') //; try by rewrite -cats1 -catA /= -Ht'.
 rewrite -cats1 [unzip1 _]map_cat /= cats1.
